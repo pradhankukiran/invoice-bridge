@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
+using FluentValidation;
 using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Common;
@@ -11,7 +12,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InvoiceBridge.Application.Services;
 
-internal sealed class AccountingExportService(IApplicationDbContext dbContext) : IAccountingExportService
+internal sealed class AccountingExportService(
+    IApplicationDbContext dbContext,
+    IValidator<CreateAccountingExportRequest> createExportValidator) : IAccountingExportService
 {
     public async Task<IReadOnlyList<ExportCandidateInvoiceDto>> ListEligibleInvoicesAsync(CancellationToken cancellationToken = default)
     {
@@ -56,6 +59,8 @@ internal sealed class AccountingExportService(IApplicationDbContext dbContext) :
 
     public async Task<AccountingExportResultDto> CreateExportAsync(CreateAccountingExportRequest request, CancellationToken cancellationToken = default)
     {
+        await createExportValidator.ValidateAndThrowAsync(request, cancellationToken);
+
         var eligibleInvoicesQuery = dbContext.Invoices
             .Include(invoice => invoice.Supplier)
             .Where(invoice => invoice.Status == InvoiceStatus.Approved);

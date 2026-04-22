@@ -1,3 +1,4 @@
+using FluentValidation;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,8 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("Notification service does not implement notification publisher."));
         services.AddSingleton<IRoleRecipientResolver, NullRoleRecipientResolver>();
         services.AddSingleton<INotificationDigestSender, NullNotificationDigestSender>();
+
+        services.AddValidatorsFromAssemblyContaining(typeof(DependencyInjection), ServiceLifetime.Singleton);
 
         return services;
     }

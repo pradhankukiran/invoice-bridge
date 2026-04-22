@@ -1,3 +1,4 @@
+using FluentValidation;
 using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Common;
@@ -9,7 +10,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InvoiceBridge.Application.Services;
 
-internal sealed class PaymentService(IApplicationDbContext dbContext) : IPaymentService
+internal sealed class PaymentService(
+    IApplicationDbContext dbContext,
+    IValidator<RecordPaymentRequest> paymentValidator) : IPaymentService
 {
     public async Task<IReadOnlyList<PayableInvoiceDto>> ListPayablesAsync(CancellationToken cancellationToken = default)
     {
@@ -69,10 +72,7 @@ internal sealed class PaymentService(IApplicationDbContext dbContext) : IPayment
 
     public async Task<int> RecordPaymentAsync(RecordPaymentRequest request, CancellationToken cancellationToken = default)
     {
-        if (request.Amount <= 0)
-        {
-            throw new ArgumentException("Payment amount must be greater than zero.", nameof(request.Amount));
-        }
+        await paymentValidator.ValidateAndThrowAsync(request, cancellationToken);
 
         var invoice = await dbContext.Invoices
             .Include(i => i.Payments)

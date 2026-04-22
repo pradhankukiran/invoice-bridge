@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Schema;
+using FluentValidation;
 using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Common;
@@ -16,7 +17,8 @@ namespace InvoiceBridge.Application.Services;
 
 internal sealed class InvoiceService(
     IApplicationDbContext dbContext,
-    INotificationPublisher notificationPublisher) : IInvoiceService
+    INotificationPublisher notificationPublisher,
+    IValidator<InvoiceImportRequest> importRequestValidator) : IInvoiceService
 {
     private const int MaxQueueBatchSize = 100;
 
@@ -47,10 +49,7 @@ internal sealed class InvoiceService(
 
     public async Task<int> QueueImportAsync(InvoiceImportRequest request, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(request.XmlContent))
-        {
-            throw new ArgumentException("Invoice XML content is required.", nameof(request.XmlContent));
-        }
+        await importRequestValidator.ValidateAndThrowAsync(request, cancellationToken);
 
         var actor = string.IsNullOrWhiteSpace(request.ImportedBy) ? "ap.user" : request.ImportedBy.Trim();
         var fileName = string.IsNullOrWhiteSpace(request.FileName)

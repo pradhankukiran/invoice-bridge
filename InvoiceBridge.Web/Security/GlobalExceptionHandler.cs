@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +14,11 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
+        if (exception is ValidationException validationException)
+        {
+            return await WriteValidationProblemAsync(httpContext, validationException, cancellationToken);
+        }
+
         var (status, title) = exception switch
         {
             ArgumentException => (StatusCodes.Status400BadRequest, "Invalid request"),
@@ -57,6 +63,36 @@ public sealed class GlobalExceptionHandler(
         httpContext.Response.StatusCode = status;
         httpContext.Response.ContentType = "application/problem+json";
 
+        await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
+        return true;
+    }
+
+    private async ValueTask<bool> WriteValidationProblemAsync(
+        HttpContext httpContext,
+        ValidationException exception,
+        CancellationToken cancellationToken)
+    {
+        var errors = exception.Errors
+            .GroupBy(e => e.PropertyName)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(e => e.ErrorMessage).ToArray());
+
+        var problem = new ValidationProblemDetails(errors)
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Validation failed",
+            Type = "https://httpstatuses.io/400",
+            Instance = httpContext.Request.Path
+        };
+
+        problem.Extensions["traceId"] = httpContext.TraceIdentifier;
+
+        logger.LogWarning("Validation failed for {Method} {Path}: {ErrorCount} error(s)",
+            httpContext.Request.Method, httpContext.Request.Path, exception.Errors.Count());
+
+        httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+        httpContext.Response.ContentType = "application/problem+json";
         await httpContext.Response.WriteAsJsonAsync(problem, cancellationToken);
         return true;
     }
