@@ -1,0 +1,34 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <LayoutView Layout="typeof(Layout.MainLayout)">
+                        <h1>Access Restricted</h1>
+                        <p>You are not authorized to access this page with the current account.</p>
+                        <p><a href="@BuildLoginUrl()">Sign in with another account</a>.</p>
+                    </LayoutView>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <h1>Not Found</h1>
+                <p>The requested page does not exist.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+
+@code {
+    [Inject]
+    private NavigationManager Navigation { get; set; } = null!;
+
+    private string BuildLoginUrl()
+    {
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var returnPath = string.IsNullOrWhiteSpace(relative) ? "/" : $"/{relative}";
+        return $"/login?returnUrl={Uri.EscapeDataString(returnPath)}";
+    }
+}

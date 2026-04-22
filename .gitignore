@@ -1,0 +1,80 @@
+## .NET build output
+bin/
+obj/
+out/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!**/packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Rider / ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+## OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## Logs
+*.log
+logs/
+
+## Test results
+[Tt]est[Rr]esult*/
+coverage/
+*.coverage
+*.coveragexml
+TestResults/
+
+## Rider / VS publish
+PublishProfiles/
+*.pubxml.user
+
+## EF Core design-time artifacts
+*.mdf
+*.ldf
+*.ndf
+
+## SQLite dev databases (persist outside the repo)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+## Local env / secrets
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.Local.json
+
+## Docker
+.docker/
+
+## Node (in case of any frontend tooling)
+node_modules/
+
+## Coverage / profiling
+*.dotCover
+*.dotTrace

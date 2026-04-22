@@ -1,0 +1,314 @@
+@page "/invoice-import"
+@attribute [Authorize(Policy = AuthorizationPolicies.ImportAccess)]
+@rendermode InteractiveServer
+@inject IInvoiceService InvoiceService
+
+<PageTitle>Import Invoice XML</PageTitle>
+
+<h1>Import Invoice XML</h1>
+<p class="text-muted">Queue one or more XML invoices, then process imports in controlled batches.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Queue Uploads</div>
+    <div class="section-card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Invoice XML Files</label>
+                <InputFile OnChange="OnXmlSelected" multiple accept=".xml,text/xml,application/xml" class="form-control" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Optional XSD (applies to all queued files)</label>
+                <InputFile OnChange="OnXsdSelected" accept=".xsd,.xml,text/xml,application/xml" class="form-control" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Imported By</label>
+                <InputText class="form-control" @bind-Value="_importedBy" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end justify-content-end">
+                <a href="import-history" class="btn btn-outline-secondary">Open Import History + Diagnostics</a>
+            </div>
+        </div>
+
+        @if (_selectedFiles.Count > 0)
+        {
+            <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Size (KB)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var file in _selectedFiles)
+                        {
+                            <tr>
+                                <td>@file.FileName</td>
+                                <td>@((file.SizeBytes / 1024m).ToString("0.##"))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <button class="btn btn-primary me-2" @onclick="QueueFilesAsync" disabled="@(_isBusy || _selectedFiles.Count == 0)">
+            @(_isBusy ? "Working..." : "Queue Files")
+        </button>
+        <button class="btn btn-outline-primary" @onclick="QueueAndProcessAsync" disabled="@(_isBusy || _selectedFiles.Count == 0)">
+            Queue + Process Now
+        </button>
+    </div>
+</div>
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Queue Worker</div>
+    <div class="section-card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Processed By</label>
+                <InputText class="form-control" @bind-Value="_processedBy" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Batch Size</label>
+                <InputNumber class="form-control" @bind-Value="_batchSize" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <button class="btn btn-success" @onclick="ProcessQueueAsync" disabled="@_isBusy">
+                    @(_isBusy ? "Processing..." : "Process Pending Queue")
+                </button>
+            </div>
+        </div>
+
+        @if (_lastBatchResult is not null)
+        {
+            <div class="small text-muted">
+                Processed @_lastBatchResult.ProcessedCount / @_lastBatchResult.RequestedBatchSize,
+                Succeeded @_lastBatchResult.SucceededCount,
+                Failed @_lastBatchResult.FailedCount.
+            </div>
+        }
+    </div>
+</div>
+
+@if (_recentResults.Count > 0)
+{
+    <div class="section-card">
+        <div class="section-card-header">Most Recent Batch Results</div>
+        <div class="section-card-body">
+            <div class="table-responsive">
+                <table class="table table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>File Import ID</th>
+                            <th>Status</th>
+                            <th>Message</th>
+                            <th>Invoice ID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var result in _recentResults)
+                        {
+                            <tr>
+                                <td>@result.FileImportId</td>
+                                <td>@result.FileImportStatus</td>
+                                <td>@result.Message</td>
+                                <td>@(result.InvoiceId?.ToString() ?? "-")</td>
+                            </tr>
+
+                            @if (result.Errors.Count > 0)
+                            {
+                                <tr>
+                                    <td colspan="4">
+                                        <ul class="mb-0">
+                                            @foreach (var error in result.Errors)
+                                            {
+                                                <li>@error</li>
+                                            }
+                                        </ul>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<SelectedXmlFile> _selectedFiles = [];
+    private string? _xsdContent;
+    private string _importedBy = "ap.accountant";
+    private string _processedBy = "import.worker";
+    private int _batchSize = 10;
+    private bool _isBusy;
+    private bool _isError;
+    private string? _statusMessage;
+    private ProcessImportQueueResultDto? _lastBatchResult;
+    private IReadOnlyList<InvoiceImportResultDto> _recentResults = [];
+
+    private async Task OnXmlSelected(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            _selectedFiles.Clear();
+            var files = args.GetMultipleFiles(25);
+
+            foreach (var file in files)
+            {
+                var content = await ReadFileAsTextAsync(file, 5 * 1024 * 1024);
+                _selectedFiles.Add(new SelectedXmlFile(file.Name, content, file.Size));
+            }
+
+            _isError = false;
+            _statusMessage = _selectedFiles.Count == 0
+                ? "No XML files selected."
+                : $"Loaded {_selectedFiles.Count} XML file(s) for queueing.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+    }
+
+    private async Task OnXsdSelected(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            var file = args.File;
+            _xsdContent = await ReadFileAsTextAsync(file, 2 * 1024 * 1024);
+
+            _isError = false;
+            _statusMessage = $"Loaded XSD: {file.Name}.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+    }
+
+    private async Task QueueFilesAsync()
+    {
+        try
+        {
+            _isBusy = true;
+            var queuedCount = await QueueSelectedFilesAsync();
+
+            _isError = false;
+            _statusMessage = $"Queued {queuedCount} import file(s).";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task QueueAndProcessAsync()
+    {
+        try
+        {
+            _isBusy = true;
+            var queuedCount = await QueueSelectedFilesAsync();
+
+            _lastBatchResult = await InvoiceService.ProcessImportQueueAsync(new ProcessImportQueueRequest
+            {
+                BatchSize = queuedCount,
+                ProcessedBy = _processedBy
+            });
+
+            _recentResults = _lastBatchResult.Results;
+            _isError = _lastBatchResult.FailedCount > 0;
+            _statusMessage = _lastBatchResult.FailedCount > 0
+                ? $"Processed {_lastBatchResult.ProcessedCount} imports with {_lastBatchResult.FailedCount} failure(s)."
+                : $"Processed {_lastBatchResult.ProcessedCount} imports successfully.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ProcessQueueAsync()
+    {
+        try
+        {
+            _isBusy = true;
+
+            _lastBatchResult = await InvoiceService.ProcessImportQueueAsync(new ProcessImportQueueRequest
+            {
+                BatchSize = _batchSize,
+                ProcessedBy = _processedBy
+            });
+
+            _recentResults = _lastBatchResult.Results;
+            _isError = _lastBatchResult.FailedCount > 0;
+            _statusMessage = _lastBatchResult.ProcessedCount == 0
+                ? "No eligible imports in queue."
+                : _lastBatchResult.FailedCount > 0
+                    ? $"Processed {_lastBatchResult.ProcessedCount} import(s) with {_lastBatchResult.FailedCount} failure(s)."
+                    : $"Processed {_lastBatchResult.ProcessedCount} import(s) successfully.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task<int> QueueSelectedFilesAsync()
+    {
+        if (_selectedFiles.Count == 0)
+        {
+            throw new InvalidOperationException("Select at least one XML file first.");
+        }
+
+        var queueCount = 0;
+        foreach (var file in _selectedFiles)
+        {
+            await InvoiceService.QueueImportAsync(new InvoiceImportRequest
+            {
+                FileName = file.FileName,
+                XmlContent = file.Content,
+                XsdContent = _xsdContent,
+                ImportedBy = _importedBy
+            });
+
+            queueCount += 1;
+        }
+
+        _selectedFiles.Clear();
+        return queueCount;
+    }
+
+    private static async Task<string> ReadFileAsTextAsync(IBrowserFile file, long maxAllowedSize)
+    {
+        await using var stream = file.OpenReadStream(maxAllowedSize);
+        using var reader = new StreamReader(stream);
+        return await reader.ReadToEndAsync();
+    }
+
+    private sealed record SelectedXmlFile(string FileName, string Content, long SizeBytes);
+}

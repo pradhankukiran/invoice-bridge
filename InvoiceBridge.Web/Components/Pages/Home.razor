@@ -1,0 +1,80 @@
+@page "/"
+@attribute [Authorize(Policy = AuthorizationPolicies.AnyAuthenticatedUser)]
+@rendermode InteractiveServer
+@inject IDashboardService DashboardService
+
+<PageTitle>Dashboard</PageTitle>
+
+<h1>Dashboard</h1>
+<p class="text-muted">Operational overview for Invoice-Bridge workflows.</p>
+
+@if (_metrics is null)
+{
+    <p><em>Loading dashboard...</em></p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Open POs</div>
+                <div class="value">@_metrics.TotalOpenPurchaseOrders</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Imported</div>
+                <div class="value">@_metrics.ImportedInvoices</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Pending Approval</div>
+                <div class="value">@_metrics.PendingApprovals</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Exceptions</div>
+                <div class="value">@_metrics.ExceptionInvoices</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Failed Imports</div>
+                <div class="value">@_metrics.FailedImports</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <div class="card-kpi">
+                <div class="label">Matched (7d)</div>
+                <div class="value">@_metrics.MatchedLast7Days</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-card">
+        <div class="section-card-header">Quick Start</div>
+        <div class="section-card-body">
+            <ol class="mb-0">
+                <li>Create a purchase order in <a href="purchase-orders">Purchase Orders</a>.</li>
+                <li>Capture received quantities in <a href="goods-receipts">Goods Receipts</a>.</li>
+                <li>Configure supplier import rules in <a href="supplier-mappings">Supplier Mappings</a>.</li>
+                <li>Upload supplier invoice XML in <a href="invoice-import">Import Invoice XML</a>.</li>
+                <li>Review queue outcomes and diagnostics in <a href="import-history">Import History</a>.</li>
+                <li>Run match checks in <a href="invoices">Invoices + Matching</a>.</li>
+                <li>Approve/reject in <a href="approvals">Approvals</a> and resolve issues in <a href="exceptions">Exceptions</a>.</li>
+                <li>Generate payloads in <a href="exports">Accounting Exports</a>, then record settlements in <a href="payments">Payments</a>.</li>
+            </ol>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardMetricsDto? _metrics;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _metrics = await DashboardService.GetMetricsAsync();
+    }
+}

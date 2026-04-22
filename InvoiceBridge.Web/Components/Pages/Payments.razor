@@ -1,0 +1,219 @@
+@page "/payments"
+@attribute [Authorize(Policy = AuthorizationPolicies.PaymentAccess)]
+@rendermode InteractiveServer
+@inject IPaymentService PaymentService
+
+<PageTitle>Payments</PageTitle>
+
+<h1>Payments</h1>
+<p class="text-muted">Track outstanding balances and record invoice payments.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Record Payment</div>
+    <div class="section-card-body">
+        <EditForm Model="_form" OnValidSubmit="RecordPaymentAsync">
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Invoice</label>
+                    <InputSelect class="form-select" @bind-Value="_form.InvoiceId">
+                        <option value="0">Select invoice...</option>
+                        @foreach (var invoice in _payables)
+                        {
+                            <option value="@invoice.InvoiceId">
+                                @invoice.InvoiceNumber - @invoice.SupplierName (@invoice.OutstandingAmount.ToString("C"))
+                            </option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Amount</label>
+                    <InputNumber class="form-control" @bind-Value="_form.Amount" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Date</label>
+                    <InputDate class="form-control" @bind-Value="_form.PaymentDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Method</label>
+                    <InputText class="form-control" @bind-Value="_form.Method" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Reference</label>
+                    <InputText class="form-control" @bind-Value="_form.ReferenceNumber" />
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Recorded By</label>
+                    <InputText class="form-control" @bind-Value="_form.RecordedBy" />
+                </div>
+                <div class="col-md-8 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" type="submit" disabled="@_isRecording">
+                        @(_isRecording ? "Recording..." : "Record Payment")
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="LoadAsync">Refresh</button>
+                </div>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Payables</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Supplier</th>
+                        <th>Total</th>
+                        <th>Paid</th>
+                        <th>Outstanding</th>
+                        <th>Due Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_payables.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6">No payable invoices currently.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var payable in _payables)
+                        {
+                            <tr>
+                                <td>@payable.InvoiceNumber</td>
+                                <td>@payable.SupplierName</td>
+                                <td>@payable.TotalAmount.ToString("C")</td>
+                                <td>@payable.PaidAmount.ToString("C")</td>
+                                <td>@payable.OutstandingAmount.ToString("C")</td>
+                                <td>@(payable.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Payment Ledger</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Invoice</th>
+                        <th>Supplier</th>
+                        <th>Amount</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Recorded By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_payments.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="7">No payments recorded yet.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var payment in _payments)
+                        {
+                            <tr>
+                                <td>@payment.RecordedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@payment.InvoiceNumber</td>
+                                <td>@payment.SupplierName</td>
+                                <td>@payment.Amount.ToString("C")</td>
+                                <td>@payment.Method</td>
+                                <td>@payment.ReferenceNumber</td>
+                                <td>@payment.RecordedBy</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<PayableInvoiceDto> _payables = [];
+    private IReadOnlyList<PaymentLedgerItemDto> _payments = [];
+    private readonly PaymentForm _form = new();
+    private bool _isRecording;
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _payables = await PaymentService.ListPayablesAsync();
+        _payments = await PaymentService.ListPaymentsAsync();
+
+        if (_form.InvoiceId == 0 && _payables.Count > 0)
+        {
+            _form.InvoiceId = _payables[0].InvoiceId;
+        }
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        try
+        {
+            _isRecording = true;
+            var paymentId = await PaymentService.RecordPaymentAsync(new RecordPaymentRequest
+            {
+                InvoiceId = _form.InvoiceId,
+                Amount = _form.Amount,
+                PaymentDate = _form.PaymentDate is null ? DateOnly.FromDateTime(DateTime.UtcNow) : DateOnly.FromDateTime(_form.PaymentDate.Value),
+                Method = _form.Method,
+                ReferenceNumber = _form.ReferenceNumber,
+                RecordedBy = _form.RecordedBy
+            });
+
+            _isError = false;
+            _statusMessage = $"Payment recorded successfully (ID {paymentId}).";
+
+            _form.Amount = 0;
+            _form.ReferenceNumber = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isRecording = false;
+        }
+    }
+
+    private sealed class PaymentForm
+    {
+        public int InvoiceId { get; set; }
+        public decimal Amount { get; set; }
+        public DateTime? PaymentDate { get; set; } = DateTime.Today;
+        public string Method { get; set; } = "BankTransfer";
+        public string ReferenceNumber { get; set; } = string.Empty;
+        public string RecordedBy { get; set; } = "finance.officer";
+    }
+}

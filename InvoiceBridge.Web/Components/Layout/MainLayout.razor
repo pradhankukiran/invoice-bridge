@@ -1,0 +1,92 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject INotificationService NotificationService
+@inject NavigationManager NavigationManager
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <div>
+                <div class="top-row-brand">Invoice Bridge</div>
+            </div>
+
+            @if (_isAuthenticated)
+            {
+                <a class="notification-link" href="notifications">
+                    Notifications
+                    <span class="notification-count @(_unreadCount > 0 ? "has-unread" : string.Empty)">@_unreadCount</span>
+                </a>
+            }
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">x</a>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private int _unreadCount;
+    private bool _isAuthenticated;
+
+    protected override void OnInitialized()
+    {
+        NavigationManager.LocationChanged += HandleLocationChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await RefreshNotificationsAsync();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= HandleLocationChanged;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshNotificationsAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshNotificationsAsync()
+    {
+        if (AuthenticationStateTask is null)
+        {
+            _isAuthenticated = false;
+            _unreadCount = 0;
+            return;
+        }
+
+        var authenticationState = await AuthenticationStateTask;
+        var user = authenticationState.User;
+        var username = user.Identity?.Name;
+
+        if (user.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(username))
+        {
+            _isAuthenticated = false;
+            _unreadCount = 0;
+            return;
+        }
+
+        _isAuthenticated = true;
+        _unreadCount = await NotificationService.GetUnreadCountAsync(username);
+    }
+}

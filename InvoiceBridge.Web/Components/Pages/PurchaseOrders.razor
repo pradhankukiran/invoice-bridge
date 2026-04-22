@@ -1,0 +1,239 @@
+@page "/purchase-orders"
+@attribute [Authorize(Policy = AuthorizationPolicies.ProcurementAccess)]
+@rendermode InteractiveServer
+@inject IPurchaseOrderService PurchaseOrderService
+
+<PageTitle>Purchase Orders</PageTitle>
+
+<h1>Purchase Orders</h1>
+<p class="text-muted">Create and review purchase orders before receiving and invoicing.</p>
+
+@if (!string.IsNullOrWhiteSpace(_flashMessage))
+{
+    <div class="alert @( _isError ? "alert-danger" : "alert-success")" role="alert">@_flashMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Create Purchase Order</div>
+    <div class="section-card-body">
+        <EditForm Model="_form" OnValidSubmit="CreatePurchaseOrderAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Supplier</label>
+                    <InputSelect class="form-select" @bind-Value="_form.SupplierId">
+                        <option value="0">Select supplier...</option>
+                        @foreach (var supplier in _suppliers)
+                        {
+                            <option value="@supplier.Id">@supplier.LegalName (@supplier.SupplierCode)</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Currency</label>
+                    <InputText class="form-control" @bind-Value="_form.CurrencyCode" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Expected Delivery</label>
+                    <InputDate class="form-control" @bind-Value="_form.ExpectedDeliveryDate" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Created By</label>
+                    <InputText class="form-control" @bind-Value="_form.CreatedBy" />
+                </div>
+            </div>
+
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <h2 class="h5 m-0">PO Lines</h2>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="AddLine">Add Line</button>
+            </div>
+
+            <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 16%;">Item Code</th>
+                            <th>Description</th>
+                            <th style="width: 12%;">Qty</th>
+                            <th style="width: 14%;">Unit Price</th>
+                            <th style="width: 12%;">Tax %</th>
+                            <th style="width: 8%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var index = 0; index < _form.Lines.Count; index++)
+                        {
+                            var line = _form.Lines[index];
+                            <tr>
+                                <td><InputText class="form-control" @bind-Value="line.ItemCode" /></td>
+                                <td><InputText class="form-control" @bind-Value="line.Description" /></td>
+                                <td><InputNumber class="form-control" @bind-Value="line.OrderedQuantity" /></td>
+                                <td><InputNumber class="form-control" @bind-Value="line.UnitPrice" /></td>
+                                <td><InputNumber class="form-control" @bind-Value="line.TaxRate" /></td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveLine(index)" disabled="@(_form.Lines.Count == 1)">
+                                        Remove
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Create Purchase Order</button>
+        </EditForm>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Recent Purchase Orders</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>PO Number</th>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_purchaseOrders.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="5">No purchase orders yet.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var order in _purchaseOrders)
+                        {
+                            <tr>
+                                <td>@order.PoNumber</td>
+                                <td>@order.SupplierName</td>
+                                <td>@order.Status</td>
+                                <td>@order.TotalAmount.ToString("C")</td>
+                                <td>@order.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly PurchaseOrderForm _form = new();
+    private IReadOnlyList<SupplierLookupDto> _suppliers = [];
+    private IReadOnlyList<PurchaseOrderSummaryDto> _purchaseOrders = [];
+    private string? _flashMessage;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _suppliers = await PurchaseOrderService.ListSuppliersAsync();
+        _purchaseOrders = await PurchaseOrderService.ListAsync();
+
+        if (_suppliers.Count > 0 && _form.SupplierId == 0)
+        {
+            _form.SupplierId = _suppliers[0].Id;
+        }
+    }
+
+    private async Task CreatePurchaseOrderAsync()
+    {
+        try
+        {
+            if (_form.SupplierId <= 0)
+            {
+                throw new InvalidOperationException("Select a supplier.");
+            }
+
+            if (_form.Lines.All(line => line.OrderedQuantity <= 0 || string.IsNullOrWhiteSpace(line.ItemCode)))
+            {
+                throw new InvalidOperationException("Add at least one valid line with item code and quantity.");
+            }
+
+            var request = new CreatePurchaseOrderRequest
+            {
+                SupplierId = _form.SupplierId,
+                CurrencyCode = _form.CurrencyCode,
+                CreatedBy = _form.CreatedBy,
+                ExpectedDeliveryDate = _form.ExpectedDeliveryDate is null ? null : DateOnly.FromDateTime(_form.ExpectedDeliveryDate.Value),
+                Lines = _form.Lines.Select(line => new PurchaseOrderLineInputDto
+                {
+                    ItemCode = line.ItemCode,
+                    Description = line.Description,
+                    OrderedQuantity = line.OrderedQuantity,
+                    UnitPrice = line.UnitPrice,
+                    TaxRate = line.TaxRate
+                }).ToList()
+            };
+
+            var poId = await PurchaseOrderService.CreateAsync(request);
+            _flashMessage = $"Purchase order created successfully (ID {poId}).";
+            _isError = false;
+
+            _form.Reset();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _flashMessage = ex.Message;
+            _isError = true;
+        }
+    }
+
+    private void AddLine()
+    {
+        _form.Lines.Add(new PurchaseOrderLineForm());
+    }
+
+    private void RemoveLine(int index)
+    {
+        if (_form.Lines.Count == 1)
+        {
+            return;
+        }
+
+        _form.Lines.RemoveAt(index);
+    }
+
+    private sealed class PurchaseOrderForm
+    {
+        public int SupplierId { get; set; }
+        public string CurrencyCode { get; set; } = "USD";
+        public DateTime? ExpectedDeliveryDate { get; set; }
+        public string CreatedBy { get; set; } = "procurement.officer";
+        public List<PurchaseOrderLineForm> Lines { get; } = [new()];
+
+        public void Reset()
+        {
+            CurrencyCode = "USD";
+            ExpectedDeliveryDate = null;
+            CreatedBy = "procurement.officer";
+            Lines.Clear();
+            Lines.Add(new PurchaseOrderLineForm());
+        }
+    }
+
+    private sealed class PurchaseOrderLineForm
+    {
+        public string ItemCode { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public decimal OrderedQuantity { get; set; }
+        public decimal UnitPrice { get; set; }
+        public decimal TaxRate { get; set; }
+    }
+}

@@ -1,0 +1,222 @@
+@page "/goods-receipts"
+@attribute [Authorize(Policy = AuthorizationPolicies.WarehouseAccess)]
+@rendermode InteractiveServer
+@inject IGoodsReceiptService GoodsReceiptService
+
+<PageTitle>Goods Receipts</PageTitle>
+
+<h1>Goods Receipts</h1>
+<p class="text-muted">Capture received quantities against purchase order lines.</p>
+
+@if (!string.IsNullOrWhiteSpace(_flashMessage))
+{
+    <div class="alert @( _isError ? "alert-danger" : "alert-success")" role="alert">@_flashMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Create Goods Receipt</div>
+    <div class="section-card-body">
+        <EditForm Model="_form" OnValidSubmit="CreateGoodsReceiptAsync">
+            <div class="row g-3 mb-3">
+                <div class="col-md-5">
+                    <label class="form-label">Purchase Order</label>
+                    <select class="form-select" value="@_form.PurchaseOrderId" @onchange="OnPurchaseOrderChanged">
+                        <option value="0">Select PO...</option>
+                        @foreach (var po in _openPurchaseOrders)
+                        {
+                            <option value="@po.Id">@po.PoNumber - @po.SupplierName</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">GRN Number</label>
+                    <InputText class="form-control" @bind-Value="_form.GrnNumber" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Received By</label>
+                    <InputText class="form-control" @bind-Value="_form.ReceivedBy" />
+                </div>
+            </div>
+
+            @if (_lineInputs.Count > 0)
+            {
+                <div class="table-responsive mb-3">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Item Code</th>
+                                <th>Description</th>
+                                <th style="width: 16%;">Ordered Qty</th>
+                                <th style="width: 16%;">Received Qty</th>
+                                <th style="width: 16%;">Damaged Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in _lineInputs)
+                            {
+                                <tr @key="line.PurchaseOrderLineId">
+                                    <td>@line.ItemCode</td>
+                                    <td>@line.Description</td>
+                                    <td>@line.OrderedQuantity</td>
+                                    <td><InputNumber class="form-control" @bind-Value="line.ReceivedQuantity" /></td>
+                                    <td><InputNumber class="form-control" @bind-Value="line.DamagedQuantity" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <button type="submit" class="btn btn-primary">Save Goods Receipt</button>
+        </EditForm>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Recent Goods Receipts</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>GRN Number</th>
+                        <th>PO Number</th>
+                        <th>Received By</th>
+                        <th>Total Qty</th>
+                        <th>Received At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_goodsReceipts.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="5">No goods receipts recorded yet.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var receipt in _goodsReceipts)
+                        {
+                            <tr>
+                                <td>@receipt.GrnNumber</td>
+                                <td>@receipt.PoNumber</td>
+                                <td>@receipt.ReceivedBy</td>
+                                <td>@receipt.TotalReceivedQuantity</td>
+                                <td>@receipt.ReceivedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly GoodsReceiptForm _form = new();
+    private IReadOnlyList<OpenPurchaseOrderDto> _openPurchaseOrders = [];
+    private IReadOnlyList<GoodsReceiptSummaryDto> _goodsReceipts = [];
+    private readonly List<GoodsReceiptLineForm> _lineInputs = [];
+    private string? _flashMessage;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _openPurchaseOrders = await GoodsReceiptService.ListOpenPurchaseOrdersAsync();
+        _goodsReceipts = await GoodsReceiptService.ListAsync();
+
+        if (_openPurchaseOrders.Count > 0 && _form.PurchaseOrderId == 0)
+        {
+            _form.PurchaseOrderId = _openPurchaseOrders[0].Id;
+            BuildLineInputs();
+        }
+    }
+
+    private void OnPurchaseOrderChanged(ChangeEventArgs args)
+    {
+        _form.PurchaseOrderId = int.TryParse(args.Value?.ToString(), out var parsedValue) ? parsedValue : 0;
+        BuildLineInputs();
+    }
+
+    private void BuildLineInputs()
+    {
+        _lineInputs.Clear();
+        var selectedPo = _openPurchaseOrders.FirstOrDefault(po => po.Id == _form.PurchaseOrderId);
+        if (selectedPo is null)
+        {
+            return;
+        }
+
+        foreach (var line in selectedPo.Lines)
+        {
+            _lineInputs.Add(new GoodsReceiptLineForm
+            {
+                PurchaseOrderLineId = line.Id,
+                ItemCode = line.ItemCode,
+                Description = line.Description,
+                OrderedQuantity = line.OrderedQuantity,
+                ReceivedQuantity = 0,
+                DamagedQuantity = 0
+            });
+        }
+    }
+
+    private async Task CreateGoodsReceiptAsync()
+    {
+        try
+        {
+            if (_form.PurchaseOrderId <= 0)
+            {
+                throw new InvalidOperationException("Select a purchase order.");
+            }
+
+            var request = new CreateGoodsReceiptRequest
+            {
+                PurchaseOrderId = _form.PurchaseOrderId,
+                GrnNumber = _form.GrnNumber,
+                ReceivedBy = _form.ReceivedBy,
+                Lines = _lineInputs.Select(line => new GoodsReceiptLineInputDto
+                {
+                    PurchaseOrderLineId = line.PurchaseOrderLineId,
+                    ReceivedQuantity = line.ReceivedQuantity,
+                    DamagedQuantity = line.DamagedQuantity
+                }).ToList()
+            };
+
+            var receiptId = await GoodsReceiptService.CreateAsync(request);
+            _flashMessage = $"Goods receipt saved (ID {receiptId}).";
+            _isError = false;
+
+            _form.GrnNumber = string.Empty;
+            BuildLineInputs();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _flashMessage = ex.Message;
+            _isError = true;
+        }
+    }
+
+    private sealed class GoodsReceiptForm
+    {
+        public int PurchaseOrderId { get; set; }
+        public string GrnNumber { get; set; } = string.Empty;
+        public string ReceivedBy { get; set; } = "warehouse.receiver";
+    }
+
+    private sealed class GoodsReceiptLineForm
+    {
+        public int PurchaseOrderLineId { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public decimal OrderedQuantity { get; set; }
+        public decimal ReceivedQuantity { get; set; }
+        public decimal DamagedQuantity { get; set; }
+    }
+}

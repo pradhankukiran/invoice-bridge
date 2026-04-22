@@ -1,0 +1,199 @@
+@page "/approvals"
+@attribute [Authorize(Policy = AuthorizationPolicies.ApprovalAccess)]
+@rendermode InteractiveServer
+@using InvoiceBridge.Domain.Enums
+@inject IApprovalService ApprovalService
+
+<PageTitle>Approvals</PageTitle>
+
+<h1>Approval Queue</h1>
+<p class="text-muted">Review pending invoices, apply decision, and monitor SLA escalation.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Filters</div>
+    <div class="section-card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Role</label>
+                <InputText class="form-control" @bind-Value="_role" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Actor</label>
+                <InputText class="form-control" @bind-Value="_actor" />
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-outline-secondary" @onclick="LoadAsync">Refresh Queue</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Pending Approvals</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Supplier</th>
+                        <th>Amount</th>
+                        <th>Requested</th>
+                        <th>Hours</th>
+                        <th>SLA</th>
+                        <th>Comment</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_queue.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="8">No pending items for this role.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in _queue)
+                        {
+                            var isBusy = _busyInvoices.Contains(item.InvoiceId);
+                            <tr>
+                                <td>@item.InvoiceNumber</td>
+                                <td>@item.SupplierName</td>
+                                <td>@item.TotalAmount.ToString("C")</td>
+                                <td>@item.RequestedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@item.HoursPending.ToString("0.0")</td>
+                                <td><span class="badge @GetSlaClass(item.SlaState)">@item.SlaState</span></td>
+                                <td style="min-width: 220px;">
+                                    <input class="form-control form-control-sm" value="@GetComment(item.InvoiceId)" @oninput="args => SetComment(item.InvoiceId, args.Value?.ToString())" />
+                                </td>
+                                <td class="text-end" style="min-width: 210px;">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" @onclick="() => LoadHistoryAsync(item.InvoiceId)">History</button>
+                                    <button class="btn btn-sm btn-success me-2" disabled="@isBusy" @onclick="() => DecideAsync(item.InvoiceId, ApprovalDecision.Approved)">Approve</button>
+                                    <button class="btn btn-sm btn-danger" disabled="@isBusy" @onclick="() => DecideAsync(item.InvoiceId, ApprovalDecision.Rejected)">Reject</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_history.Count > 0)
+{
+    <div class="section-card">
+        <div class="section-card-header">Action History (Invoice ID @_historyInvoiceId)</div>
+        <div class="section-card-body">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Actor</th>
+                            <th>Decision</th>
+                            <th>Comment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var action in _history)
+                        {
+                            <tr>
+                                <td>@action.ActionAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@action.Actor</td>
+                                <td>@action.Decision</td>
+                                <td>@action.Comment</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<ApprovalQueueItemDto> _queue = [];
+    private IReadOnlyList<ApprovalActionHistoryDto> _history = [];
+    private readonly Dictionary<int, string> _comments = [];
+    private readonly HashSet<int> _busyInvoices = [];
+    private int? _historyInvoiceId;
+    private string _role = "Manager";
+    private string _actor = "manager.approver";
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _queue = await ApprovalService.ListPendingAsync(_role);
+    }
+
+    private async Task LoadHistoryAsync(int invoiceId)
+    {
+        _historyInvoiceId = invoiceId;
+        _history = await ApprovalService.GetHistoryAsync(invoiceId);
+    }
+
+    private async Task DecideAsync(int invoiceId, ApprovalDecision decision)
+    {
+        try
+        {
+            _busyInvoices.Add(invoiceId);
+
+            var result = await ApprovalService.DecideAsync(new ApprovalDecisionRequest
+            {
+                InvoiceId = invoiceId,
+                Decision = decision,
+                Actor = _actor,
+                Comment = GetComment(invoiceId)
+            });
+
+            _isError = false;
+            _statusMessage = result.Message;
+
+            _comments.Remove(invoiceId);
+            await LoadAsync();
+            await LoadHistoryAsync(invoiceId);
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _busyInvoices.Remove(invoiceId);
+        }
+    }
+
+    private string GetComment(int invoiceId)
+    {
+        return _comments.TryGetValue(invoiceId, out var value) ? value : string.Empty;
+    }
+
+    private void SetComment(int invoiceId, string? value)
+    {
+        _comments[invoiceId] = value ?? string.Empty;
+    }
+
+    private static string GetSlaClass(ApprovalSlaState state)
+    {
+        return state switch
+        {
+            ApprovalSlaState.OnTrack => "bg-success",
+            ApprovalSlaState.Escalating => "bg-warning text-dark",
+            _ => "bg-danger"
+        };
+    }
+}

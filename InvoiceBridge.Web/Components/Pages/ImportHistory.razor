@@ -1,0 +1,237 @@
+@page "/import-history"
+@attribute [Authorize(Policy = AuthorizationPolicies.ImportAccess)]
+@rendermode InteractiveServer
+@inject IInvoiceService InvoiceService
+
+<PageTitle>Import History</PageTitle>
+
+<h1>Import History + Diagnostics</h1>
+<p class="text-muted">Review import attempts, inspect row-level diagnostics, and queue retries for failed files.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Retry Controls</div>
+    <div class="section-card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Requested By</label>
+                <InputText class="form-control" @bind-Value="_requestedBy" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Delay (seconds)</label>
+                <InputNumber class="form-control" @bind-Value="_retryDelaySeconds" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <button class="btn btn-outline-secondary" @onclick="LoadAsync" disabled="@_isBusy">Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Imports</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>File</th>
+                        <th>Status</th>
+                        <th>Imported</th>
+                        <th>Processed</th>
+                        <th>Retries</th>
+                        <th>Errors</th>
+                        <th>Last Error</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_imports.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="9">No file imports recorded.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in _imports)
+                        {
+                            var isSelected = _selectedImportId == item.FileImportId;
+                            var isRetryable = item.Status == InvoiceBridge.Domain.Enums.FileImportStatus.Failed;
+                            <tr class="@(isSelected ? "table-primary" : string.Empty)">
+                                <td>@item.FileImportId</td>
+                                <td>@item.FileName</td>
+                                <td>@item.Status</td>
+                                <td>@item.ImportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@(item.ProcessedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                                <td>@item.RetryCount</td>
+                                <td>@item.ErrorCount</td>
+                                <td>@(string.IsNullOrWhiteSpace(item.LastErrorMessage) ? "-" : item.LastErrorMessage)</td>
+                                <td class="text-end" style="min-width: 220px;">
+                                    <button class="btn btn-sm btn-outline-secondary me-2" @onclick="() => LoadDetailsAsync(item.FileImportId)" disabled="@_isBusy">Details</button>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => RetryAsync(item.FileImportId)" disabled="@(_isBusy || !isRetryable)">Retry</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_selectedDetails is not null)
+{
+    <div class="section-card mb-4">
+        <div class="section-card-header">Import Details (ID @_selectedDetails.FileImportId)</div>
+        <div class="section-card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-md-3"><strong>Status:</strong> @_selectedDetails.Status</div>
+                <div class="col-md-3"><strong>Imported By:</strong> @_selectedDetails.ImportedBy</div>
+                <div class="col-md-3"><strong>Imported:</strong> @_selectedDetails.ImportedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                <div class="col-md-3"><strong>Processed:</strong> @(_selectedDetails.ProcessedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-3"><strong>Retries:</strong> @_selectedDetails.RetryCount</div>
+                <div class="col-md-3"><strong>Error Count:</strong> @_selectedDetails.ErrorCount</div>
+                <div class="col-md-6"><strong>Last Error:</strong> @(string.IsNullOrWhiteSpace(_selectedDetails.LastErrorMessage) ? "-" : _selectedDetails.LastErrorMessage)</div>
+            </div>
+
+            <h2 class="h6">Row-Level Diagnostics</h2>
+            <div class="table-responsive mb-4">
+                <table class="table table-sm table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>Message</th>
+                            <th>Severity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_selectedDetails.Diagnostics.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="3">No diagnostics for this import.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var diagnostic in _selectedDetails.Diagnostics)
+                            {
+                                <tr>
+                                    <td>@diagnostic.Path</td>
+                                    <td>@diagnostic.Message</td>
+                                    <td>@diagnostic.Severity</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h2 class="h6">Imported Invoices</h2>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Invoice #</th>
+                            <th>Supplier</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_selectedDetails.ImportedInvoices.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5">No invoices associated with this file import.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var invoice in _selectedDetails.ImportedInvoices)
+                            {
+                                <tr>
+                                    <td>@invoice.InvoiceId</td>
+                                    <td>@invoice.InvoiceNumber</td>
+                                    <td>@invoice.SupplierName</td>
+                                    <td>@invoice.Status</td>
+                                    <td>@invoice.TotalAmount.ToString("C")</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<FileImportSummaryDto> _imports = [];
+    private FileImportDetailsDto? _selectedDetails;
+    private int? _selectedImportId;
+
+    private string _requestedBy = "ap.accountant";
+    private int _retryDelaySeconds;
+    private bool _isBusy;
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _imports = await InvoiceService.ListFileImportsAsync();
+
+        if (_selectedImportId.HasValue)
+        {
+            _selectedDetails = await InvoiceService.GetFileImportDetailsAsync(_selectedImportId.Value);
+        }
+    }
+
+    private async Task LoadDetailsAsync(int fileImportId)
+    {
+        _selectedImportId = fileImportId;
+        _selectedDetails = await InvoiceService.GetFileImportDetailsAsync(fileImportId);
+    }
+
+    private async Task RetryAsync(int fileImportId)
+    {
+        try
+        {
+            _isBusy = true;
+            var result = await InvoiceService.RetryFileImportAsync(new RetryFileImportRequest
+            {
+                FileImportId = fileImportId,
+                RequestedBy = _requestedBy,
+                DelaySeconds = _retryDelaySeconds
+            });
+
+            _isError = result.Status != InvoiceBridge.Domain.Enums.FileImportStatus.QueuedForRetry;
+            _statusMessage = result.Message;
+
+            await LoadAsync();
+            await LoadDetailsAsync(fileImportId);
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

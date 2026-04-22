@@ -1,0 +1,158 @@
+@page "/exceptions"
+@attribute [Authorize(Policy = AuthorizationPolicies.ExceptionAccess)]
+@rendermode InteractiveServer
+@inject IExceptionService ExceptionService
+
+<PageTitle>Exceptions</PageTitle>
+
+<h1>Exception Queue</h1>
+<p class="text-muted">Resolve mismatch invoices with notes and optional re-match execution.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Resolution Settings</div>
+    <div class="section-card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Actor</label>
+                <InputText class="form-control" @bind-Value="_actor" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <button class="btn btn-outline-secondary" @onclick="LoadAsync">Refresh Exceptions</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Invoices In Exception State</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Supplier</th>
+                        <th>Amount</th>
+                        <th>Last Match</th>
+                        <th>Reason</th>
+                        <th>Note</th>
+                        <th>Rerun Match</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_exceptions.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="8">No exception invoices.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in _exceptions)
+                        {
+                            var isBusy = _busyInvoices.Contains(item.InvoiceId);
+                            <tr>
+                                <td>@item.InvoiceNumber</td>
+                                <td>@item.SupplierName</td>
+                                <td>@item.TotalAmount.ToString("C")</td>
+                                <td>@(item.LastMatchedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                                <td>@(item.LastResultCode?.ToString() ?? "-")</td>
+                                <td style="min-width: 220px;">
+                                    <input class="form-control form-control-sm" value="@GetNote(item.InvoiceId)" @oninput="args => SetNote(item.InvoiceId, args.Value?.ToString())" />
+                                </td>
+                                <td>
+                                    <input type="checkbox" class="form-check-input" checked="@GetRerun(item.InvoiceId)" @onchange="args => SetRerun(item.InvoiceId, args.Value)" />
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary" disabled="@isBusy" @onclick="() => ResolveAsync(item.InvoiceId)">
+                                        @(isBusy ? "Processing..." : "Resolve")
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ExceptionInvoiceDto> _exceptions = [];
+    private readonly Dictionary<int, string> _notes = [];
+    private readonly Dictionary<int, bool> _rerun = [];
+    private readonly HashSet<int> _busyInvoices = [];
+    private string _actor = "ap.accountant";
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _exceptions = await ExceptionService.ListAsync();
+    }
+
+    private async Task ResolveAsync(int invoiceId)
+    {
+        try
+        {
+            _busyInvoices.Add(invoiceId);
+            var result = await ExceptionService.ResolveAsync(new ExceptionResolutionRequest
+            {
+                InvoiceId = invoiceId,
+                Actor = _actor,
+                Note = GetNote(invoiceId),
+                RerunMatch = GetRerun(invoiceId)
+            });
+
+            _isError = result.InvoiceStatus == InvoiceBridge.Domain.Enums.InvoiceStatus.Exception;
+            _statusMessage = result.Message;
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _busyInvoices.Remove(invoiceId);
+        }
+    }
+
+    private string GetNote(int invoiceId)
+    {
+        return _notes.TryGetValue(invoiceId, out var value) ? value : string.Empty;
+    }
+
+    private void SetNote(int invoiceId, string? value)
+    {
+        _notes[invoiceId] = value ?? string.Empty;
+    }
+
+    private bool GetRerun(int invoiceId)
+    {
+        return _rerun.TryGetValue(invoiceId, out var value) ? value : true;
+    }
+
+    private void SetRerun(int invoiceId, object? value)
+    {
+        _rerun[invoiceId] = value switch
+        {
+            bool boolValue => boolValue,
+            string strValue => string.Equals(strValue, "true", StringComparison.OrdinalIgnoreCase) || string.Equals(strValue, "on", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
+}

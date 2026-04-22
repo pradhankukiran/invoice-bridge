@@ -1,0 +1,392 @@
+@page "/supplier-mappings"
+@attribute [Authorize(Policy = AuthorizationPolicies.IntegrationAccess)]
+@rendermode InteractiveServer
+@inject IPurchaseOrderService PurchaseOrderService
+@inject IMappingProfileService MappingProfileService
+
+<PageTitle>Supplier Mapping Profiles</PageTitle>
+
+<h1>Supplier Mapping Profiles</h1>
+<p class="text-muted">Configure supplier-specific item-code mapping rules used during XML invoice import.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Profile Configuration</div>
+    <div class="section-card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Supplier</label>
+                <select class="form-select" value="@_selectedSupplierId" @onchange="OnSupplierChanged">
+                    <option value="0">Select supplier...</option>
+                    @foreach (var supplier in _suppliers)
+                    {
+                        <option value="@supplier.Id">@supplier.LegalName (@supplier.SupplierCode)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" @bind="_profileIsActive" />
+                    <label class="form-check-label">Active</label>
+                </div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" @bind="_requireMappedItems" />
+                    <label class="form-check-label">Require Mapped Items</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Default Tax Rate (%)</label>
+                <InputNumber class="form-control" @bind-Value="_defaultTaxRate" />
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Updated By</label>
+                <InputText class="form-control" @bind-Value="_updatedBy" />
+            </div>
+            <div class="col-md-8 d-flex align-items-end">
+                <button class="btn btn-primary me-2" @onclick="SaveProfileAsync" disabled="@(_selectedSupplierId == 0)">Save Profile</button>
+                <button class="btn btn-outline-secondary" @onclick="LoadProfilesAsync">Refresh Profiles</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_selectedProfileId > 0)
+{
+    <div class="section-card mb-4">
+        <div class="section-card-header">Add or Update Item Mapping</div>
+        <div class="section-card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">External Item Code</label>
+                    <InputText class="form-control" @bind-Value="_itemForm.ExternalItemCode" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Internal Item Code</label>
+                    <InputText class="form-control" @bind-Value="_itemForm.InternalItemCode" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Override Tax (%)</label>
+                    <InputNumber class="form-control" @bind-Value="_itemForm.OverrideTaxRate" />
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="_itemForm.IsActive" />
+                        <label class="form-check-label">Active Mapping</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-8">
+                    <label class="form-label">Override Description</label>
+                    <InputText class="form-control" @bind-Value="_itemForm.OverrideDescription" />
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button class="btn btn-primary me-2" @onclick="SaveItemMappingAsync">Save Mapping</button>
+                    <button class="btn btn-outline-secondary" @onclick="ResetItemForm">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Mapping Profiles</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Require Map</th>
+                        <th>Default Tax</th>
+                        <th>Mappings</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_profiles.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6">No mapping profiles configured.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var profile in _profiles)
+                        {
+                            <tr class="@(profile.SupplierId == _selectedSupplierId ? "table-primary" : string.Empty)">
+                                <td>@profile.SupplierName (@profile.SupplierCode)</td>
+                                <td>@(profile.IsActive ? "Active" : "Inactive")</td>
+                                <td>@(profile.RequireMappedItems ? "Yes" : "No")</td>
+                                <td>@(profile.DefaultTaxRate?.ToString("0.####") ?? "-")</td>
+                                <td>@profile.MappingCount</td>
+                                <td>@profile.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") by @profile.UpdatedBy</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (_selectedProfileId > 0)
+{
+    <div class="section-card">
+        <div class="section-card-header">Item Mappings for Selected Supplier</div>
+        <div class="section-card-body">
+            <div class="table-responsive">
+                <table class="table table-striped align-middle">
+                    <thead>
+                        <tr>
+                            <th>External</th>
+                            <th>Internal</th>
+                            <th>Tax Override</th>
+                            <th>Description Override</th>
+                            <th>Status</th>
+                            <th>Updated</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_itemMappings.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7">No item mappings for this profile.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var mapping in _itemMappings)
+                            {
+                                <tr>
+                                    <td>@mapping.ExternalItemCode</td>
+                                    <td>@mapping.InternalItemCode</td>
+                                    <td>@(mapping.OverrideTaxRate?.ToString("0.####") ?? "-")</td>
+                                    <td>@(string.IsNullOrWhiteSpace(mapping.OverrideDescription) ? "-" : mapping.OverrideDescription)</td>
+                                    <td>@(mapping.IsActive ? "Active" : "Inactive")</td>
+                                    <td>@mapping.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary me-2" @onclick="() => EditMapping(mapping)">Edit</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteMappingAsync(mapping.MappingId)">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<SupplierLookupDto> _suppliers = [];
+    private IReadOnlyList<SupplierMappingProfileDto> _profiles = [];
+    private IReadOnlyList<SupplierItemMappingDto> _itemMappings = [];
+
+    private int _selectedSupplierId;
+    private int _selectedProfileId;
+    private bool _profileIsActive = true;
+    private bool _requireMappedItems;
+    private decimal? _defaultTaxRate;
+    private string _updatedBy = "integration.admin";
+
+    private readonly ItemMappingForm _itemForm = new();
+
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _suppliers = await PurchaseOrderService.ListSuppliersAsync();
+        await LoadProfilesAsync();
+
+        if (_suppliers.Count > 0)
+        {
+            _selectedSupplierId = _suppliers[0].Id;
+            await LoadSupplierProfileAsync();
+        }
+    }
+
+    private async Task LoadProfilesAsync()
+    {
+        _profiles = await MappingProfileService.ListProfilesAsync();
+    }
+
+    private async Task OnSupplierChanged(ChangeEventArgs args)
+    {
+        _selectedSupplierId = int.TryParse(args.Value?.ToString(), out var parsedValue) ? parsedValue : 0;
+        await LoadSupplierProfileAsync();
+    }
+
+    private async Task LoadSupplierProfileAsync()
+    {
+        _itemMappings = [];
+        _selectedProfileId = 0;
+        _profileIsActive = true;
+        _requireMappedItems = false;
+        _defaultTaxRate = null;
+        _itemForm.Reset();
+
+        if (_selectedSupplierId <= 0)
+        {
+            return;
+        }
+
+        var profile = await MappingProfileService.GetProfileBySupplierIdAsync(_selectedSupplierId);
+        if (profile is null)
+        {
+            return;
+        }
+
+        _selectedProfileId = profile.ProfileId;
+        _profileIsActive = profile.IsActive;
+        _requireMappedItems = profile.RequireMappedItems;
+        _defaultTaxRate = profile.DefaultTaxRate;
+        await LoadItemMappingsAsync();
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        try
+        {
+            if (_selectedSupplierId <= 0)
+            {
+                throw new InvalidOperationException("Select a supplier.");
+            }
+
+            var profileId = await MappingProfileService.UpsertProfileAsync(new UpsertSupplierMappingProfileRequest
+            {
+                ProfileId = _selectedProfileId == 0 ? null : _selectedProfileId,
+                SupplierId = _selectedSupplierId,
+                IsActive = _profileIsActive,
+                RequireMappedItems = _requireMappedItems,
+                DefaultTaxRate = _defaultTaxRate,
+                UpdatedBy = _updatedBy
+            });
+
+            _selectedProfileId = profileId;
+            await LoadProfilesAsync();
+            await LoadItemMappingsAsync();
+
+            _isError = false;
+            _statusMessage = "Mapping profile saved.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+    }
+
+    private async Task LoadItemMappingsAsync()
+    {
+        if (_selectedProfileId <= 0)
+        {
+            _itemMappings = [];
+            return;
+        }
+
+        _itemMappings = await MappingProfileService.ListItemMappingsAsync(_selectedProfileId);
+    }
+
+    private async Task SaveItemMappingAsync()
+    {
+        try
+        {
+            if (_selectedProfileId <= 0)
+            {
+                throw new InvalidOperationException("Save profile before adding item mappings.");
+            }
+
+            await MappingProfileService.UpsertItemMappingAsync(new UpsertSupplierItemMappingRequest
+            {
+                ProfileId = _selectedProfileId,
+                MappingId = _itemForm.MappingId == 0 ? null : _itemForm.MappingId,
+                ExternalItemCode = _itemForm.ExternalItemCode,
+                InternalItemCode = _itemForm.InternalItemCode,
+                OverrideDescription = _itemForm.OverrideDescription,
+                OverrideTaxRate = _itemForm.OverrideTaxRate,
+                IsActive = _itemForm.IsActive,
+                UpdatedBy = _updatedBy
+            });
+
+            await LoadProfilesAsync();
+            await LoadItemMappingsAsync();
+            _itemForm.Reset();
+
+            _isError = false;
+            _statusMessage = "Item mapping saved.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+    }
+
+    private void EditMapping(SupplierItemMappingDto mapping)
+    {
+        _itemForm.MappingId = mapping.MappingId;
+        _itemForm.ExternalItemCode = mapping.ExternalItemCode;
+        _itemForm.InternalItemCode = mapping.InternalItemCode;
+        _itemForm.OverrideDescription = mapping.OverrideDescription;
+        _itemForm.OverrideTaxRate = mapping.OverrideTaxRate;
+        _itemForm.IsActive = mapping.IsActive;
+    }
+
+    private async Task DeleteMappingAsync(int mappingId)
+    {
+        try
+        {
+            await MappingProfileService.DeleteItemMappingAsync(mappingId, _updatedBy);
+            await LoadProfilesAsync();
+            await LoadItemMappingsAsync();
+
+            _isError = false;
+            _statusMessage = "Item mapping deleted.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+    }
+
+    private void ResetItemForm()
+    {
+        _itemForm.Reset();
+    }
+
+    private sealed class ItemMappingForm
+    {
+        public int MappingId { get; set; }
+        public string ExternalItemCode { get; set; } = string.Empty;
+        public string InternalItemCode { get; set; } = string.Empty;
+        public string? OverrideDescription { get; set; }
+        public decimal? OverrideTaxRate { get; set; }
+        public bool IsActive { get; set; } = true;
+
+        public void Reset()
+        {
+            MappingId = 0;
+            ExternalItemCode = string.Empty;
+            InternalItemCode = string.Empty;
+            OverrideDescription = null;
+            OverrideTaxRate = null;
+            IsActive = true;
+        }
+    }
+}

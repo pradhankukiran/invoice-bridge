@@ -1,0 +1,115 @@
+@using System.Security.Claims
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <span class="sidebar-heading text-white">Procure-to-Pay Control</span>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <AuthorizeView>
+        <Authorized Context="authState">
+            @{ var user = authState.User; }
+
+            <nav class="flex-column">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="notifications">Notifications</NavLink>
+                </div>
+
+                @if (CanAccess(user, "Admin", "Procurement"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="purchase-orders">Purchase Orders</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "Warehouse"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="goods-receipts">Goods Receipts</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "AP", "IntegrationAdmin"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="invoice-import">Import Invoice XML</NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="import-history">Import History</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "IntegrationAdmin"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="supplier-mappings">Supplier Mappings</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "AP", "Manager"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="invoices">Invoices + Matching</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "Manager"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="approvals">Approvals</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "AP", "Manager"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="exceptions">Exceptions</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "Finance"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="exports">Accounting Exports</NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="payments">Payments</NavLink>
+                    </div>
+                }
+
+                @if (CanAccess(user, "Admin", "Compliance"))
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="audit">Audit Trail</NavLink>
+                    </div>
+                }
+
+                <div class="nav-item px-3 mt-2">
+                    <form method="post" action="/auth/logout">
+                        <button type="submit" class="btn btn-sm btn-outline-light w-100">Sign Out</button>
+                    </form>
+                </div>
+            </nav>
+        </Authorized>
+        <NotAuthorized>
+            <nav class="flex-column">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="login">Sign In</NavLink>
+                </div>
+            </nav>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private static bool CanAccess(ClaimsPrincipal user, params string[] roles)
+    {
+        return roles.Any(user.IsInRole);
+    }
+}

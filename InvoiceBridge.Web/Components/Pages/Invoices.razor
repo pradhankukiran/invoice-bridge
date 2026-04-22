@@ -1,0 +1,105 @@
+@page "/invoices"
+@attribute [Authorize(Policy = AuthorizationPolicies.InvoiceReviewAccess)]
+@rendermode InteractiveServer
+@inject IInvoiceService InvoiceService
+
+<PageTitle>Invoices</PageTitle>
+
+<h1>Invoices + Matching</h1>
+<p class="text-muted">Review imported invoices and run PO/GRN/invoice matching.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card">
+    <div class="section-card-header">Invoices</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>Invoice #</th>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Invoice Date</th>
+                        <th>Total</th>
+                        <th>Last Match</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_invoices.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="7">No invoices imported yet.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var invoice in _invoices)
+                        {
+                            var isRunning = _runningInvoiceIds.Contains(invoice.Id);
+                            <tr>
+                                <td>@invoice.InvoiceNumber</td>
+                                <td>@invoice.SupplierName</td>
+                                <td>@invoice.Status</td>
+                                <td>@invoice.InvoiceDate.ToString("yyyy-MM-dd")</td>
+                                <td>@invoice.TotalAmount.ToString("C")</td>
+                                <td>@(invoice.LastMatchedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary" disabled="@isRunning" @onclick="() => RunMatchAsync(invoice.Id)">
+                                        @(isRunning ? "Running..." : "Run Match")
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<InvoiceSummaryDto> _invoices = [];
+    private readonly HashSet<int> _runningInvoiceIds = [];
+    private string? _statusMessage;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInvoicesAsync();
+    }
+
+    private async Task LoadInvoicesAsync()
+    {
+        _invoices = await InvoiceService.ListAsync();
+    }
+
+    private async Task RunMatchAsync(int invoiceId)
+    {
+        try
+        {
+            _runningInvoiceIds.Add(invoiceId);
+            var result = await InvoiceService.RunMatchAsync(invoiceId, "manager.reviewer");
+
+            _isError = !result.IsMatch;
+            _statusMessage = result.IsMatch
+                ? $"Invoice matched successfully. Result ID: {result.MatchResultId}."
+                : $"Invoice has variances. Primary reason: {result.ResultCode}.";
+
+            await LoadInvoicesAsync();
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _runningInvoiceIds.Remove(invoiceId);
+        }
+    }
+}

@@ -1,0 +1,202 @@
+@page "/notifications"
+@attribute [Authorize(Policy = AuthorizationPolicies.AnyAuthenticatedUser)]
+@rendermode InteractiveServer
+@inject INotificationService NotificationService
+
+<PageTitle>Notifications</PageTitle>
+
+<h1>Notifications</h1>
+<p class="text-muted">Track approval assignments, SLA alerts, and workflow reminders.</p>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <div class="alert @(_isError ? "alert-danger" : "alert-success")" role="alert">@_statusMessage</div>
+}
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Controls</div>
+    <div class="section-card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <div class="form-check">
+                    <input id="includeRead" class="form-check-input" type="checkbox" @bind="_includeRead" />
+                    <label class="form-check-label" for="includeRead">Include read notifications</label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Max rows</label>
+                <InputNumber class="form-control" @bind-Value="_maxRows" />
+            </div>
+            <div class="col-md-7">
+                <button class="btn btn-primary me-2" @onclick="LoadAsync" disabled="@_isBusy">Refresh</button>
+                <button class="btn btn-outline-secondary" @onclick="MarkAllAsReadAsync" disabled="@(_isBusy || _unreadCount == 0)">Mark All Read</button>
+                <span class="ms-3 text-muted">Unread: @_unreadCount</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Inbox</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Category</th>
+                        <th>Severity</th>
+                        <th>Title</th>
+                        <th>Message</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_notifications.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6">No notifications available.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var notification in _notifications)
+                        {
+                            <tr class="@(notification.IsRead ? string.Empty : "table-warning")">
+                                <td>@notification.CreatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@notification.Category</td>
+                                <td><span class="badge @GetSeverityClass(notification.Severity)">@notification.Severity</span></td>
+                                <td>@notification.Title</td>
+                                <td>@notification.Message</td>
+                                <td class="text-end" style="min-width: 220px;">
+                                    @if (!string.IsNullOrWhiteSpace(notification.LinkUrl))
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary me-2" href="@notification.LinkUrl">Open</a>
+                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@(_isBusy || notification.IsRead)" @onclick="() => MarkAsReadAsync(notification.NotificationId)">Mark Read</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private IReadOnlyList<UserNotificationDto> _notifications = [];
+    private string? _username;
+    private bool _includeRead = true;
+    private int _maxRows = 100;
+    private int _unreadCount;
+    private bool _isBusy;
+    private bool _isError;
+    private string? _statusMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var username = await ResolveUsernameAsync();
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            _notifications = [];
+            _unreadCount = 0;
+            return;
+        }
+
+        _username = username;
+        _notifications = await NotificationService.ListForUserAsync(new NotificationListRequest
+        {
+            RecipientUsername = username,
+            IncludeRead = _includeRead,
+            MaxRows = _maxRows
+        });
+
+        _unreadCount = await NotificationService.GetUnreadCountAsync(username);
+    }
+
+    private async Task MarkAsReadAsync(int notificationId)
+    {
+        if (string.IsNullOrWhiteSpace(_username))
+        {
+            return;
+        }
+
+        try
+        {
+            _isBusy = true;
+            await NotificationService.MarkAsReadAsync(notificationId, _username);
+            await LoadAsync();
+
+            _isError = false;
+            _statusMessage = "Notification marked as read.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task MarkAllAsReadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username))
+        {
+            return;
+        }
+
+        try
+        {
+            _isBusy = true;
+            await NotificationService.MarkAllAsReadAsync(_username);
+            await LoadAsync();
+
+            _isError = false;
+            _statusMessage = "All notifications marked as read.";
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _statusMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task<string?> ResolveUsernameAsync()
+    {
+        if (AuthenticationStateTask is null)
+        {
+            return null;
+        }
+
+        var state = await AuthenticationStateTask;
+        return state.User.Identity?.IsAuthenticated == true
+            ? state.User.Identity.Name
+            : null;
+    }
+
+    private static string GetSeverityClass(string severity)
+    {
+        return severity.ToUpperInvariant() switch
+        {
+            "CRITICAL" => "bg-danger",
+            "WARNING" => "bg-warning text-dark",
+            _ => "bg-info text-dark"
+        };
+    }
+}

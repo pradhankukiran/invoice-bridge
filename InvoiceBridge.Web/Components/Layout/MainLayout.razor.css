@@ -1,0 +1,130 @@
+.page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+    min-height: 100vh;
+    background: linear-gradient(180deg, #f6f9fc 0%, #eef3f8 100%);
+}
+
+.sidebar {
+    background: linear-gradient(180deg, #173252 0%, #1f4f74 68%, #2c6e8f 100%);
+}
+
+.top-row {
+    border-bottom: 1px solid #d6dee8;
+    background-color: #ffffff;
+    justify-content: space-between;
+    height: 4.2rem;
+    display: flex;
+    align-items: center;
+}
+
+.top-row-title {
+    font-weight: 700;
+    color: #18314a;
+}
+
+.top-row-subtitle {
+    font-size: 0.9rem;
+    color: #56718d;
+}
+
+.top-row-brand {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #18314a;
+}
+
+.notification-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    text-decoration: none;
+    color: #1f4f74;
+    font-weight: 600;
+    border: 1px solid #c8d7e6;
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    background: #f7fbff;
+}
+
+.notification-link:hover {
+    background: #eef6ff;
+}
+
+.notification-count {
+    min-width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    background: #dbe8f5;
+    color: #1f4f74;
+}
+
+.notification-count.has-unread {
+    background: #c62828;
+    color: #ffffff;
+}
+
+@media (max-width: 640.98px) {
+    .top-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.2rem;
+        height: auto;
+        padding-top: 0.8rem;
+        padding-bottom: 0.8rem;
+    }
+}
+
+@media (min-width: 641px) {
+    .page {
+        flex-direction: row;
+    }
+
+    .sidebar {
+        width: 280px;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+    }
+
+    .top-row {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .top-row,
+    article {
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+}
+
+#blazor-error-ui {
+    background: #ffedcc;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}

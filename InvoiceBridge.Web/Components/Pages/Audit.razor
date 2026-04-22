@@ -1,0 +1,126 @@
+@page "/audit"
+@attribute [Authorize(Policy = AuthorizationPolicies.AuditAccess)]
+@rendermode InteractiveServer
+@inject IAuditService AuditService
+
+<PageTitle>Audit Trail</PageTitle>
+
+<h1>Audit Trail</h1>
+<p class="text-muted">Filter and inspect compliance-relevant actions across procure-to-pay workflows.</p>
+
+<div class="section-card mb-4">
+    <div class="section-card-header">Filters</div>
+    <div class="section-card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Entity</label>
+                <InputText class="form-control" @bind-Value="_entityName" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Action</label>
+                <InputText class="form-control" @bind-Value="_action" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Actor</label>
+                <InputText class="form-control" @bind-Value="_actor" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Max Rows</label>
+                <InputNumber class="form-control" @bind-Value="_maxRows" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">From (UTC)</label>
+                <InputDate class="form-control" @bind-Value="_fromDate" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">To (UTC)</label>
+                <InputDate class="form-control" @bind-Value="_toDate" />
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <button class="btn btn-primary me-2" @onclick="LoadAsync">Apply Filters</button>
+                <button class="btn btn-outline-secondary" @onclick="ResetFilters">Reset</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="section-card">
+    <div class="section-card-header">Audit Events</div>
+    <div class="section-card-body">
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Entity</th>
+                        <th>Entity ID</th>
+                        <th>Action</th>
+                        <th>Actor</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_logs.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6">No audit events found for current filter.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var log in _logs)
+                        {
+                            <tr>
+                                <td>@log.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>@log.EntityName</td>
+                                <td>@log.EntityId</td>
+                                <td>@log.Action</td>
+                                <td>@log.Actor</td>
+                                <td>@log.Details</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<AuditLogDto> _logs = [];
+    private string _entityName = string.Empty;
+    private string _action = string.Empty;
+    private string _actor = string.Empty;
+    private int _maxRows = 250;
+    private DateTime? _fromDate;
+    private DateTime? _toDate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _logs = await AuditService.ListAsync(new AuditQueryRequest
+        {
+            EntityName = string.IsNullOrWhiteSpace(_entityName) ? null : _entityName,
+            Action = string.IsNullOrWhiteSpace(_action) ? null : _action,
+            Actor = string.IsNullOrWhiteSpace(_actor) ? null : _actor,
+            MaxRows = _maxRows,
+            FromUtc = _fromDate.HasValue ? DateTime.SpecifyKind(_fromDate.Value.Date, DateTimeKind.Utc) : null,
+            ToUtc = _toDate.HasValue ? DateTime.SpecifyKind(_toDate.Value.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc) : null
+        });
+    }
+
+    private async Task ResetFilters()
+    {
+        _entityName = string.Empty;
+        _action = string.Empty;
+        _actor = string.Empty;
+        _maxRows = 250;
+        _fromDate = null;
+        _toDate = null;
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,81 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+
+<PageTitle>Sign In</PageTitle>
+
+<h1>Sign In</h1>
+<p class="text-muted">Authenticate with a configured role account to access protected workflows.</p>
+
+@if (_hasError)
+{
+    <div class="alert alert-danger" role="alert">Invalid username or password.</div>
+}
+
+<div class="section-card" style="max-width: 520px;">
+    <div class="section-card-header">Credentials</div>
+    <div class="section-card-body">
+        <form method="post" action="/auth/login">
+            <input type="hidden" name="returnUrl" value="@_returnUrl" />
+
+            <div class="mb-3">
+                <label class="form-label" for="username">Username</label>
+                <input class="form-control" id="username" name="username" autocomplete="username" required />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label" for="password">Password</label>
+                <input class="form-control" id="password" type="password" name="password" autocomplete="current-password" required />
+            </div>
+
+            <button class="btn btn-primary" type="submit">Sign In</button>
+        </form>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    private string _returnUrl = "/";
+    private bool _hasError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _returnUrl = NormalizeReturnUrl(ReturnUrl);
+        _hasError = string.Equals(Error, "1", StringComparison.OrdinalIgnoreCase);
+
+        if (AuthenticationStateTask is null)
+        {
+            return;
+        }
+
+        var authenticationState = await AuthenticationStateTask;
+        if (authenticationState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo(_returnUrl, forceLoad: true);
+        }
+    }
+
+    private static string NormalizeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl))
+        {
+            return "/";
+        }
+
+        if (!returnUrl.StartsWith("/", StringComparison.Ordinal) || returnUrl.StartsWith("//", StringComparison.Ordinal))
+        {
+            return "/";
+        }
+
+        return returnUrl;
+    }
+}
