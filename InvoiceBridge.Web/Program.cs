@@ -20,6 +20,13 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
+builder.Services.AddRateLimiter(RateLimitingPolicies.Configure);
+
+builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = 8 * 1024 * 1024; // 8 MB — invoice XML ceiling
+});
+
 builder.Services.Configure<DemoAuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.AddSingleton<IDemoUserStore, DemoUserStore>();
 
@@ -65,7 +72,9 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseSecurityHeaders();
 app.UseStaticFiles();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -115,7 +124,7 @@ app.MapPost("/auth/login", async (HttpContext context, IDemoUserStore userStore)
         });
 
     return Results.Redirect(returnUrl);
-});
+}).RequireRateLimiting(RateLimitingPolicies.AuthLogin);
 
 app.MapPost("/auth/logout", async (HttpContext context) =>
 {
@@ -136,7 +145,8 @@ app.MapGet("/api/exports/{exportId:int}/download", async (
 
     var bytes = Encoding.UTF8.GetBytes(artifact.Content);
     return Results.File(bytes, artifact.ContentType, artifact.FileName);
-}).RequireAuthorization(AuthorizationPolicies.ExportAccess);
+}).RequireAuthorization(AuthorizationPolicies.ExportAccess)
+  .RequireRateLimiting(RateLimitingPolicies.ApiDownload);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
