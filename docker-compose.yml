@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoicebridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: invoicebridge
+      POSTGRES_USER: invoicebridge
+      POSTGRES_PASSWORD: invoicebridge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoicebridge -d invoicebridge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: invoicebridge-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI — http://localhost:8025
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    container_name: invoicebridge-otelcol
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invoicebridge-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Persistence__Provider: Postgres
+      Persistence__SeedOnStartup: "true"
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=invoicebridge;Username=invoicebridge;Password=invoicebridge
+      Smtp__Enabled: "true"
+      Smtp__Host: mailhog
+      Smtp__Port: "1025"
+      Smtp__UseStartTls: "false"
+      Smtp__FromAddress: noreply@invoicebridge.local
+      Smtp__FromDisplayName: InvoiceBridge
+      Otel__OtlpEndpoint: http://otel-collector:4317
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres-data:
