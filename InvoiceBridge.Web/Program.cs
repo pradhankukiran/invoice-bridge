@@ -7,10 +7,58 @@ using InvoiceBridge.Web.Components;
 using InvoiceBridge.Web.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Serilog;
+using Serilog.Events;
+using Serilog.Exceptions;
 
-var builder = WebApplication.CreateBuilder(args);
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithMachineName()
+    .Enrich.WithProcessId()
+    .Enrich.WithThreadId()
+    .Enrich.WithExceptionDetails()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-builder.Services.AddRazorComponents()
+try
+{
+    Log.Information("Starting InvoiceBridge.Web");
+
+    var builder = WebApplication.CreateBuilder(args);
+
+    builder.Host.UseSerilog((context, services, configuration) =>
+    {
+        configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .Enrich.WithMachineName()
+            .Enrich.WithProcessId()
+            .Enrich.WithThreadId()
+            .Enrich.WithEnvironmentName()
+            .Enrich.WithExceptionDetails();
+
+        if (context.HostingEnvironment.IsDevelopment())
+        {
+            configuration.WriteTo.Console();
+        }
+        else
+        {
+            configuration.WriteTo.Console(new Serilog.Formatting.Compact.CompactJsonFormatter());
+        }
+
+        configuration.WriteTo.File(
+            new Serilog.Formatting.Compact.CompactJsonFormatter(),
+            path: Path.Combine(context.HostingEnvironment.ContentRootPath, "logs", "invoicebridge-.log"),
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 14,
+            fileSizeLimitBytes: 64 * 1024 * 1024,
+            rollOnFileSizeLimit: true);
+    });
+
+    builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddResponseCompression(options => options.EnableForHttps = true);
 builder.Services.AddHealthChecks();
@@ -62,6 +110,22 @@ builder.Services.AddSingleton<INotificationDigestSender, LoggingNotificationDige
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
+
+app.UseSerilogRequestLogging(options =>
+{
+    options.MessageTemplate = "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {Elapsed:0.0000} ms";
+    options.GetLevel = static (ctx, elapsed, ex) =>
+        ex != null ? LogEventLevel.Error
+        : ctx.Response.StatusCode >= 500 ? LogEventLevel.Error
+        : ctx.Response.StatusCode >= 400 ? LogEventLevel.Warning
+        : LogEventLevel.Information;
+    options.EnrichDiagnosticContext = static (diagnosticContext, httpContext) =>
+    {
+        diagnosticContext.Set("ClientIp", httpContext.Connection.RemoteIpAddress?.ToString());
+        diagnosticContext.Set("UserName", httpContext.User.Identity?.Name);
+        diagnosticContext.Set("CorrelationId", httpContext.TraceIdentifier);
+    };
+});
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -152,7 +216,16 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 app.MapHealthChecks("/health");
 
-app.Run();
+    app.Run();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    Log.Fatal(ex, "InvoiceBridge.Web terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
 static string NormalizeReturnUrl(string? returnUrl)
 {
