@@ -106,7 +106,22 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddSingleton<IRoleRecipientResolver, DemoRoleRecipientResolver>();
-builder.Services.AddSingleton<INotificationDigestSender, LoggingNotificationDigestSender>();
+
+builder.Services.AddOptions<SmtpOptions>()
+    .Bind(builder.Configuration.GetSection(SmtpOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+var smtpEnabled = builder.Configuration.GetValue<bool>($"{SmtpOptions.SectionName}:Enabled");
+if (smtpEnabled)
+{
+    builder.Services.AddSingleton<INotificationDigestSender, SmtpNotificationDigestSender>();
+}
+else
+{
+    builder.Services.AddSingleton<INotificationDigestSender, LoggingNotificationDigestSender>();
+}
+
 builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
