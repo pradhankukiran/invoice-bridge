@@ -3,6 +3,7 @@ using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.DTOs;
 using InvoiceBridge.Infrastructure.Persistence;
+using InvoiceBridge.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,7 +43,12 @@ internal sealed class IntegrationTestScope : IAsyncDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddApplication();
-        services.AddDbContext<InvoiceBridgeDbContext>(options => options.UseSqlite(connectionString));
+        services.AddSingleton<RowVersionInterceptor>();
+        services.AddDbContext<InvoiceBridgeDbContext>((sp, options) =>
+        {
+            options.AddInterceptors(sp.GetRequiredService<RowVersionInterceptor>());
+            options.UseSqlite(connectionString);
+        });
         services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<InvoiceBridgeDbContext>());
         services.AddSingleton<IRoleRecipientResolver, TestRoleRecipientResolver>();
 

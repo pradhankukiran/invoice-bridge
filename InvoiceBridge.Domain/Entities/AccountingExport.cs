@@ -11,6 +11,7 @@ public sealed class AccountingExport
     public int InvoiceCount { get; set; }
     public decimal TotalAmount { get; set; }
     public required string Payload { get; set; }
+    public uint RowVersion { get; set; }
 
     public ICollection<AccountingExportInvoice> ExportInvoices { get; set; } = new List<AccountingExportInvoice>();
 }

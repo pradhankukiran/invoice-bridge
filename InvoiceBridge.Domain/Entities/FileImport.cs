@@ -17,6 +17,7 @@ public sealed class FileImport
     public int RetryCount { get; set; }
     public int ErrorCount { get; set; }
     public string? LastErrorMessage { get; set; }
+    public uint RowVersion { get; set; }
 
     public ICollection<FileImportError> Errors { get; set; } = new List<FileImportError>();
     public ICollection<Invoice> Invoices { get; set; } = new List<Invoice>();

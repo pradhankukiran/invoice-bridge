@@ -11,4 +11,5 @@ public sealed class Payment
     public required string ReferenceNumber { get; set; }
     public required string RecordedBy { get; set; }
     public DateTimeOffset RecordedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public uint RowVersion { get; set; }
 }

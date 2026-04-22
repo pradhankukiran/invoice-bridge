@@ -25,7 +25,8 @@ namespace InvoiceBridge.Infrastructure.Persistence.Migrations
                     GeneratedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     InvoiceCount = table.Column<int>(type: "integer", nullable: false),
                     TotalAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
-                    Payload = table.Column<string>(type: "character varying(1000000)", maxLength: 1000000, nullable: false)
+                    Payload = table.Column<string>(type: "character varying(1000000)", maxLength: 1000000, nullable: false),
+                    RowVersion = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -67,7 +68,8 @@ namespace InvoiceBridge.Infrastructure.Persistence.Migrations
                     Status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     RetryCount = table.Column<int>(type: "integer", nullable: false),
                     ErrorCount = table.Column<int>(type: "integer", nullable: false),
-                    LastErrorMessage = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true)
+                    LastErrorMessage = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
+                    RowVersion = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -167,7 +169,8 @@ namespace InvoiceBridge.Infrastructure.Persistence.Migrations
                     TaxAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     TotalAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     Status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
-                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    RowVersion = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -272,7 +275,8 @@ namespace InvoiceBridge.Infrastructure.Persistence.Migrations
                     CurrentDecision = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     CompletedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     EscalationNotifiedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    BreachNotifiedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                    BreachNotifiedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    RowVersion = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -347,7 +351,8 @@ namespace InvoiceBridge.Infrastructure.Persistence.Migrations
                     Method = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     ReferenceNumber = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     RecordedBy = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    RecordedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                    RecordedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    RowVersion = table.Column<long>(type: "bigint", nullable: false)
                 },
                 constraints: table =>
                 {

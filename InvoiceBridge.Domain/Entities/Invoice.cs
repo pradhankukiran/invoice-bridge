@@ -18,6 +18,7 @@ public sealed class Invoice
     public decimal TotalAmount { get; set; }
     public InvoiceStatus Status { get; set; } = InvoiceStatus.Imported;
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public uint RowVersion { get; set; }
 
     public ICollection<InvoiceLine> Lines { get; set; } = new List<InvoiceLine>();
     public ICollection<MatchResult> MatchResults { get; set; } = new List<MatchResult>();

@@ -13,6 +13,7 @@ public sealed class ApprovalRequest
     public DateTimeOffset? CompletedAtUtc { get; set; }
     public DateTimeOffset? EscalationNotifiedAtUtc { get; set; }
     public DateTimeOffset? BreachNotifiedAtUtc { get; set; }
+    public uint RowVersion { get; set; }
 
     public ICollection<ApprovalAction> Actions { get; set; } = new List<ApprovalAction>();
 }

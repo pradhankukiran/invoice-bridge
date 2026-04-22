@@ -22,9 +22,12 @@ public static class DependencyInjection
         var connectionString = ResolveConnectionString(configuration, provider);
 
         services.AddSingleton(new PersistenceSettings(provider, connectionString));
+        services.AddSingleton<RowVersionInterceptor>();
 
-        services.AddDbContext<InvoiceBridgeDbContext>(options =>
+        services.AddDbContext<InvoiceBridgeDbContext>((sp, options) =>
         {
+            options.AddInterceptors(sp.GetRequiredService<RowVersionInterceptor>());
+
             switch (provider)
             {
                 case PersistenceProvider.Postgres:

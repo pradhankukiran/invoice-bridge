@@ -97,6 +97,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.TaxAmount).HasPrecision(18, 2);
             entity.Property(x => x.TotalAmount).HasPrecision(18, 2);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.RowVersion).IsConcurrencyToken();
             entity.HasIndex(x => new { x.SupplierId, x.InvoiceNumber }).IsUnique();
             entity.HasOne(x => x.Supplier)
                 .WithMany(x => x.Invoices)
@@ -122,6 +123,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.XsdContent).HasMaxLength(2_000_000);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
             entity.Property(x => x.LastErrorMessage).HasMaxLength(1000);
+            entity.Property(x => x.RowVersion).IsConcurrencyToken();
             entity.HasIndex(x => new { x.Status, x.ImportedAtUtc });
             entity.HasIndex(x => x.NextRetryAtUtc);
         });
@@ -156,6 +158,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
         {
             entity.Property(x => x.AssignedRole).HasMaxLength(64);
             entity.Property(x => x.CurrentDecision).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.RowVersion).IsConcurrencyToken();
             entity.HasOne(x => x.Invoice)
                 .WithOne(x => x.ApprovalRequest)
                 .HasForeignKey<ApprovalRequest>(x => x.InvoiceId)
@@ -178,6 +181,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.GeneratedBy).HasMaxLength(128);
             entity.Property(x => x.TotalAmount).HasPrecision(18, 2);
             entity.Property(x => x.Payload).HasMaxLength(1000000);
+            entity.Property(x => x.RowVersion).IsConcurrencyToken();
             entity.HasIndex(x => x.ExportReference).IsUnique();
         });
 
@@ -202,6 +206,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.Method).HasMaxLength(32);
             entity.Property(x => x.ReferenceNumber).HasMaxLength(64);
             entity.Property(x => x.RecordedBy).HasMaxLength(128);
+            entity.Property(x => x.RowVersion).IsConcurrencyToken();
             entity.HasOne(x => x.Invoice)
                 .WithMany(x => x.Payments)
                 .HasForeignKey(x => x.InvoiceId)
