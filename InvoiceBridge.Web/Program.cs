@@ -4,8 +4,12 @@ using InvoiceBridge.Application;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Infrastructure;
 using InvoiceBridge.Web.Components;
+using InvoiceBridge.Web.Observability;
 using InvoiceBridge.Web.Security;
 using InvoiceBridge.Web.Workers;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
@@ -137,6 +141,45 @@ builder.Services.AddOptions<WorkerOptions>()
 builder.Services.AddHostedService<ImportQueueWorker>();
 builder.Services.AddHostedService<ApprovalSlaWorker>();
 builder.Services.AddHostedService<NotificationOutboxWorker>();
+
+var otlpEndpoint = builder.Configuration["Otel:OtlpEndpoint"];
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource
+        .AddService(serviceName: TelemetryConstants.ServiceName)
+        .AddAttributes(new KeyValuePair<string, object>[]
+        {
+            new("deployment.environment", builder.Environment.EnvironmentName)
+        }))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(TelemetryConstants.ActivitySourceName)
+            .AddAspNetCoreInstrumentation(opts =>
+            {
+                opts.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health");
+            })
+            .AddHttpClientInstrumentation()
+            .AddEntityFrameworkCoreInstrumentation(opts => opts.SetDbStatementForText = false);
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            tracing.AddOtlpExporter(opts => opts.Endpoint = new Uri(otlpEndpoint));
+        }
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter(TelemetryConstants.MeterName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation();
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            metrics.AddOtlpExporter(opts => opts.Endpoint = new Uri(otlpEndpoint));
+        }
+    });
 
 // Default resilience pipeline for any HttpClient (future ERP connectors,
 // OCR providers, webhook recipients, etc.).
