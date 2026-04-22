@@ -222,8 +222,12 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.Action).HasMaxLength(80);
             entity.Property(x => x.Actor).HasMaxLength(128);
             entity.Property(x => x.Details).HasMaxLength(1000);
+            entity.Property(x => x.IpAddress).HasMaxLength(45);
+            entity.Property(x => x.UserAgent).HasMaxLength(512);
+            entity.Property(x => x.CorrelationId).HasMaxLength(128);
             entity.HasIndex(x => x.OccurredAtUtc);
             entity.HasIndex(x => new { x.EntityName, x.Action });
+            entity.HasIndex(x => x.CorrelationId);
         });
 
         modelBuilder.Entity<SupplierMappingProfile>(entity =>

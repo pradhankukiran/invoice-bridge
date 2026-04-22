@@ -115,6 +115,7 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddSingleton<IRoleRecipientResolver, DemoRoleRecipientResolver>();
+builder.Services.AddScoped<IAuditContextAccessor, HttpAuditContextAccessor>();
 
 builder.Services.AddOptions<SmtpOptions>()
     .Bind(builder.Configuration.GetSection(SmtpOptions.SectionName))

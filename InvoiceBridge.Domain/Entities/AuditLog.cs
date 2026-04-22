@@ -9,4 +9,7 @@ public sealed class AuditLog
     public required string Actor { get; set; }
     public required string Details { get; set; }
     public DateTimeOffset OccurredAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public string? IpAddress { get; set; }
+    public string? UserAgent { get; set; }
+    public string? CorrelationId { get; set; }
 }

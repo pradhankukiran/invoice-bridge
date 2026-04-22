@@ -3,6 +3,7 @@ using System;
 using InvoiceBridge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace InvoiceBridge.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(InvoiceBridgeDbContext))]
-    partial class InvoiceBridgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260422145005_EnrichAuditLog")]
+    partial class EnrichAuditLog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

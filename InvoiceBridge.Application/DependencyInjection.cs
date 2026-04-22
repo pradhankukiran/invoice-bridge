@@ -2,6 +2,7 @@ using FluentValidation;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace InvoiceBridge.Application;
 
@@ -26,6 +27,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationOutboxDispatcher, NotificationOutboxDispatcher>();
         services.AddSingleton<IRoleRecipientResolver, NullRoleRecipientResolver>();
         services.AddSingleton<INotificationDigestSender, NullNotificationDigestSender>();
+        services.TryAddSingleton<IAuditContextAccessor, NullAuditContextAccessor>();
 
         services.AddValidatorsFromAssemblyContaining(typeof(DependencyInjection), ServiceLifetime.Singleton);
 

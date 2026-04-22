@@ -23,10 +23,12 @@ public static class DependencyInjection
 
         services.AddSingleton(new PersistenceSettings(provider, connectionString));
         services.AddSingleton<RowVersionInterceptor>();
+        services.AddScoped<AuditEnrichmentInterceptor>();
 
         services.AddDbContext<InvoiceBridgeDbContext>((sp, options) =>
         {
             options.AddInterceptors(sp.GetRequiredService<RowVersionInterceptor>());
+            options.AddInterceptors(sp.GetRequiredService<AuditEnrichmentInterceptor>());
 
             switch (provider)
             {
