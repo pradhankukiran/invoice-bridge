@@ -134,6 +134,20 @@ builder.Services.AddHostedService<ImportQueueWorker>();
 builder.Services.AddHostedService<ApprovalSlaWorker>();
 builder.Services.AddHostedService<NotificationOutboxWorker>();
 
+// Default resilience pipeline for any HttpClient (future ERP connectors,
+// OCR providers, webhook recipients, etc.).
+builder.Services.ConfigureHttpClientDefaults(http =>
+{
+    http.AddStandardResilienceHandler(resilience =>
+    {
+        resilience.AttemptTimeout.Timeout = TimeSpan.FromSeconds(10);
+        resilience.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);
+        resilience.CircuitBreaker.FailureRatio = 0.5;
+        resilience.CircuitBreaker.MinimumThroughput = 10;
+        resilience.Retry.MaxRetryAttempts = 3;
+    });
+});
+
 var app = builder.Build();
 
 app.UseSerilogRequestLogging(options =>
