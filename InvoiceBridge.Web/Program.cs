@@ -5,6 +5,7 @@ using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Infrastructure;
 using InvoiceBridge.Web.Components;
 using InvoiceBridge.Web.Security;
+using InvoiceBridge.Web.Workers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
@@ -123,6 +124,15 @@ else
 }
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddOptions<WorkerOptions>()
+    .Bind(builder.Configuration.GetSection(WorkerOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddHostedService<ImportQueueWorker>();
+builder.Services.AddHostedService<ApprovalSlaWorker>();
+builder.Services.AddHostedService<NotificationOutboxWorker>();
 
 var app = builder.Build();
 
