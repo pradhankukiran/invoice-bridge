@@ -62,7 +62,11 @@ try
     builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddResponseCompression(options => options.EnableForHttps = true);
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<InvoiceBridge.Infrastructure.Persistence.InvoiceBridgeDbContext>(
+        name: "database",
+        failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
+        tags: ["ready", "db"]);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCascadingAuthenticationState();
 
@@ -253,7 +257,23 @@ app.MapGet("/api/exports/{exportId:int}/download", async (
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
-app.MapHealthChecks("/health");
+
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false, // exclude all checks — just verifies the process responds
+    AllowCachingResponses = false
+}).AllowAnonymous();
+
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    AllowCachingResponses = false
+}).AllowAnonymous();
+
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    AllowCachingResponses = false
+}).AllowAnonymous();
 
     app.Run();
 }
