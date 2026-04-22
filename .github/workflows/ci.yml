@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore InvoiceBridge.sln
+
+      - name: Build
+        run: dotnet build InvoiceBridge.sln --configuration Release --no-restore -warnaserror
+
+      - name: Test
+        run: >-
+          dotnet test InvoiceBridge.sln
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory ./test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+
+  security-scan:
+    name: Vulnerability Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore InvoiceBridge.sln
+
+      - name: Check for vulnerable packages
+        run: |
+          dotnet list InvoiceBridge.sln package --vulnerable --include-transitive 2>&1 | tee vuln.txt
+          if grep -qE "(Critical|High|Moderate) " vuln.txt; then
+            echo "Vulnerable packages detected:"
+            cat vuln.txt
+            exit 1
+          fi
+
+  docker-build:
+    name: Docker Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: invoicebridge-web:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
