@@ -1,191 +1,126 @@
 using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Infrastructure.Persistence;
 using InvoiceBridge.Infrastructure.Seed;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System.Data;
-using System.Data.Common;
 
 namespace InvoiceBridge.Infrastructure;
+
+public enum PersistenceProvider
+{
+    Sqlite,
+    SqlServer,
+    Postgres
+}
 
 public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var sqlServerConnectionString = configuration.GetConnectionString("SqlServer");
-        var sqliteConnectionString = configuration.GetConnectionString("Sqlite") ?? "Data Source=invoicebridge.db";
+        var provider = ResolveProvider(configuration);
+        var connectionString = ResolveConnectionString(configuration, provider);
+
+        services.AddSingleton(new PersistenceSettings(provider, connectionString));
 
         services.AddDbContext<InvoiceBridgeDbContext>(options =>
         {
-            if (!string.IsNullOrWhiteSpace(sqlServerConnectionString))
+            switch (provider)
             {
-                options.UseSqlServer(sqlServerConnectionString);
-            }
-            else
-            {
-                options.UseSqlite(sqliteConnectionString);
+                case PersistenceProvider.Postgres:
+                    options.UseNpgsql(connectionString, npgsql =>
+                    {
+                        npgsql.MigrationsAssembly(typeof(InvoiceBridgeDbContext).Assembly.FullName);
+                        npgsql.EnableRetryOnFailure(
+                            maxRetryCount: 5,
+                            maxRetryDelay: TimeSpan.FromSeconds(10),
+                            errorCodesToAdd: null);
+                    });
+                    break;
+
+                case PersistenceProvider.SqlServer:
+                    options.UseSqlServer(connectionString, sql =>
+                    {
+                        sql.MigrationsAssembly(typeof(InvoiceBridgeDbContext).Assembly.FullName);
+                        sql.EnableRetryOnFailure(
+                            maxRetryCount: 5,
+                            maxRetryDelay: TimeSpan.FromSeconds(10),
+                            errorNumbersToAdd: null);
+                    });
+                    break;
+
+                case PersistenceProvider.Sqlite:
+                default:
+                    options.UseSqlite(connectionString);
+                    break;
             }
         });
 
-        services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<InvoiceBridgeDbContext>());
+        services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<InvoiceBridgeDbContext>());
 
         return services;
     }
 
-    public static async Task InitialiseDatabaseAsync(this IServiceProvider serviceProvider)
+    public static async Task InitialiseDatabaseAsync(this IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<InvoiceBridgeDbContext>();
+        var settings = scope.ServiceProvider.GetRequiredService<PersistenceSettings>();
 
-        await dbContext.Database.EnsureCreatedAsync();
-
-        if (await IsLegacySqliteSchemaAsync(dbContext))
+        if (settings.Provider == PersistenceProvider.Sqlite)
         {
-            await dbContext.Database.EnsureDeletedAsync();
-            await dbContext.Database.EnsureCreatedAsync();
+            await dbContext.Database.EnsureCreatedAsync(cancellationToken);
         }
-
-        try
+        else
         {
-            await SeedData.EnsureSeededAsync(dbContext);
-        }
-        catch (Exception exception) when (IsSchemaMismatch(exception))
-        {
-            await dbContext.Database.EnsureDeletedAsync();
-            await dbContext.Database.EnsureCreatedAsync();
-            await SeedData.EnsureSeededAsync(dbContext);
+            await dbContext.Database.MigrateAsync(cancellationToken);
         }
     }
 
-    private static bool IsSchemaMismatch(Exception exception)
+    public static async Task SeedDatabaseAsync(this IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
-        if (exception is SqliteException sqliteException
-            && (sqliteException.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase)
-                || sqliteException.Message.Contains("no such column", StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (exception.InnerException is not null)
-        {
-            return IsSchemaMismatch(exception.InnerException);
-        }
-
-        return false;
+        using var scope = serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<InvoiceBridgeDbContext>();
+        await SeedData.EnsureSeededAsync(dbContext, cancellationToken);
     }
 
-    private static async Task<bool> IsLegacySqliteSchemaAsync(InvoiceBridgeDbContext dbContext)
+    private static PersistenceProvider ResolveProvider(IConfiguration configuration)
     {
-        if (!dbContext.Database.IsSqlite())
+        var explicitProvider = configuration["Persistence:Provider"];
+        if (!string.IsNullOrWhiteSpace(explicitProvider) &&
+            Enum.TryParse<PersistenceProvider>(explicitProvider, ignoreCase: true, out var parsed))
         {
-            return false;
+            return parsed;
         }
 
-        var connection = dbContext.Database.GetDbConnection();
-        var shouldClose = connection.State != ConnectionState.Open;
-
-        if (shouldClose)
+        if (!string.IsNullOrWhiteSpace(configuration.GetConnectionString("Postgres")))
         {
-            await connection.OpenAsync();
+            return PersistenceProvider.Postgres;
         }
 
-        try
+        if (!string.IsNullOrWhiteSpace(configuration.GetConnectionString("SqlServer")))
         {
-            var hasSupplierMappingProfiles = await TableExistsAsync(connection, "SupplierMappingProfiles");
-            if (!hasSupplierMappingProfiles)
-            {
-                return true;
-            }
-
-            var hasExpectedFileImportColumns = await HasColumnsAsync(
-                connection,
-                tableName: "FileImports",
-                requiredColumns:
-                [
-                    "XmlContent",
-                    "XsdContent",
-                    "ProcessingStartedAtUtc",
-                    "ProcessedAtUtc",
-                    "NextRetryAtUtc",
-                    "RetryCount",
-                    "LastErrorMessage"
-                ]);
-
-            if (!hasExpectedFileImportColumns)
-            {
-                return true;
-            }
-
-            var hasUserNotifications = await TableExistsAsync(connection, "UserNotifications");
-            if (!hasUserNotifications)
-            {
-                return true;
-            }
-
-            var hasApprovalNotificationColumns = await HasColumnsAsync(
-                connection,
-                tableName: "ApprovalRequests",
-                requiredColumns:
-                [
-                    "EscalationNotifiedAtUtc",
-                    "BreachNotifiedAtUtc"
-                ]);
-
-            if (!hasApprovalNotificationColumns)
-            {
-                return true;
-            }
-
-            return false;
+            return PersistenceProvider.SqlServer;
         }
-        finally
-        {
-            if (shouldClose)
-            {
-                await connection.CloseAsync();
-            }
-        }
+
+        return PersistenceProvider.Sqlite;
     }
 
-    private static async Task<bool> TableExistsAsync(DbConnection connection, string tableName)
+    private static string ResolveConnectionString(IConfiguration configuration, PersistenceProvider provider)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
-
-        var tableNameParameter = command.CreateParameter();
-        tableNameParameter.ParameterName = "$name";
-        tableNameParameter.Value = tableName;
-        command.Parameters.Add(tableNameParameter);
-
-        var result = await command.ExecuteScalarAsync();
-        var count = result switch
+        return provider switch
         {
-            long value => value,
-            int value => value,
-            _ => 0
+            PersistenceProvider.Postgres => configuration.GetConnectionString("Postgres")
+                ?? throw new InvalidOperationException(
+                    "Persistence provider is Postgres but ConnectionStrings:Postgres is not configured."),
+            PersistenceProvider.SqlServer => configuration.GetConnectionString("SqlServer")
+                ?? throw new InvalidOperationException(
+                    "Persistence provider is SqlServer but ConnectionStrings:SqlServer is not configured."),
+            PersistenceProvider.Sqlite => configuration.GetConnectionString("Sqlite")
+                ?? "Data Source=invoicebridge.db",
+            _ => throw new InvalidOperationException($"Unsupported persistence provider '{provider}'.")
         };
-
-        return count > 0;
-    }
-
-    private static async Task<bool> HasColumnsAsync(DbConnection connection, string tableName, IEnumerable<string> requiredColumns)
-    {
-        var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA table_info('{tableName}');";
-
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            if (reader["name"] is string columnName)
-            {
-                existingColumns.Add(columnName);
-            }
-        }
-
-        return requiredColumns.All(existingColumns.Contains);
     }
 }
+
+public sealed record PersistenceSettings(PersistenceProvider Provider, string ConnectionString);

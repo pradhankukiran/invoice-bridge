@@ -68,6 +68,11 @@ app.UseResponseCompression();
 
 await app.Services.InitialiseDatabaseAsync();
 
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Persistence:SeedOnStartup"))
+{
+    await app.Services.SeedDatabaseAsync();
+}
+
 app.MapPost("/auth/login", async (HttpContext context, IDemoUserStore userStore) =>
 {
     var form = await context.Request.ReadFormAsync();
