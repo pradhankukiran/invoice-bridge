@@ -1,16 +1,19 @@
+using System.Text.Json;
 using InvoiceBridge.Application.Abstractions.Persistence;
 using InvoiceBridge.Application.Abstractions.Services;
 using InvoiceBridge.Application.Common;
 using InvoiceBridge.Application.DTOs;
 using InvoiceBridge.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace InvoiceBridge.Application.Services;
 
 internal sealed class NotificationService(
     IApplicationDbContext dbContext,
     IRoleRecipientResolver roleRecipientResolver,
-    INotificationDigestSender notificationDigestSender) : INotificationService, INotificationPublisher
+    INotificationOutboxDispatcher outboxDispatcher,
+    ILogger<NotificationService> logger) : INotificationService, INotificationPublisher
 {
     private const int DefaultMaxRows = 100;
 
@@ -156,6 +159,18 @@ internal sealed class NotificationService(
 
         dbContext.UserNotifications.AddRange(notifications);
 
+        if (request.SendDigest)
+        {
+            dbContext.NotificationOutbox.Add(new NotificationOutboxMessage
+            {
+                RecipientsJson = JsonSerializer.Serialize(recipients),
+                Subject = Truncate(request.Title.Trim(), 200),
+                Body = Truncate(request.Message.Trim(), 4000),
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                AttemptCount = 0
+            });
+        }
+
         AuditTrailWriter.Add(
             dbContext,
             entityName: "Notification",
@@ -168,12 +183,23 @@ internal sealed class NotificationService(
 
         if (request.SendDigest)
         {
-            await notificationDigestSender.SendAsync(new NotificationDigestMessage
+            // Best-effort inline dispatch so recipients are notified immediately when
+            // infrastructure is healthy. Persistence of the outbox row has already
+            // committed above; the background OutboxDispatcher worker will retry
+            // anything we don't dispatch synchronously, so swallow failures here.
+            try
             {
-                Recipients = recipients,
-                Subject = request.Title,
-                Body = request.Message
-            }, cancellationToken);
+                await outboxDispatcher.DispatchPendingAsync(maxBatch: 16, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Inline outbox dispatch failed after publishing notification; row remains for worker retry.");
+            }
         }
 
         return notifications.Count;

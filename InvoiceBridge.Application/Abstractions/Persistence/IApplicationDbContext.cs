@@ -26,6 +26,7 @@ public interface IApplicationDbContext
     DbSet<SupplierMappingProfile> SupplierMappingProfiles { get; }
     DbSet<SupplierItemMapping> SupplierItemMappings { get; }
     DbSet<UserNotification> UserNotifications { get; }
+    DbSet<NotificationOutboxMessage> NotificationOutbox { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

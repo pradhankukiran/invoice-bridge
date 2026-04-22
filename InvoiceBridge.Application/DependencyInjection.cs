@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationPublisher>(provider =>
             provider.GetRequiredService<INotificationService>() as INotificationPublisher
             ?? throw new InvalidOperationException("Notification service does not implement notification publisher."));
+        services.AddScoped<INotificationOutboxDispatcher, NotificationOutboxDispatcher>();
         services.AddSingleton<IRoleRecipientResolver, NullRoleRecipientResolver>();
         services.AddSingleton<INotificationDigestSender, NullNotificationDigestSender>();
 

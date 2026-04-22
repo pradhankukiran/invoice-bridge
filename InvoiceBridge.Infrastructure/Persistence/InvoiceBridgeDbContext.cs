@@ -28,6 +28,7 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
     public DbSet<SupplierMappingProfile> SupplierMappingProfiles => Set<SupplierMappingProfile>();
     public DbSet<SupplierItemMapping> SupplierItemMappings => Set<SupplierItemMapping>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<NotificationOutboxMessage> NotificationOutbox => Set<NotificationOutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -261,6 +262,16 @@ public sealed class InvoiceBridgeDbContext(DbContextOptions<InvoiceBridgeDbConte
             entity.Property(x => x.SourceEntityName).HasMaxLength(80);
             entity.Property(x => x.SourceEntityId).HasMaxLength(80);
             entity.HasIndex(x => new { x.RecipientUsername, x.IsRead, x.CreatedAtUtc });
+            entity.HasIndex(x => x.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<NotificationOutboxMessage>(entity =>
+        {
+            entity.Property(x => x.RecipientsJson).HasMaxLength(8000);
+            entity.Property(x => x.Subject).HasMaxLength(200);
+            entity.Property(x => x.Body).HasMaxLength(4000);
+            entity.Property(x => x.LastError).HasMaxLength(1000);
+            entity.HasIndex(x => new { x.DispatchedAtUtc, x.NextAttemptAtUtc });
             entity.HasIndex(x => x.CreatedAtUtc);
         });
 
